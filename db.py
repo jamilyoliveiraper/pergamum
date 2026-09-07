@@ -49,8 +49,7 @@ def sb():
 
 # ---------------- projects ----------------
 def list_projects():
-    print("SUPABASE_URL:", st.secrets["SUPABASE_URL"])
-    r = sb().table("projects").select("*").execute()
+    r = sb().table("projects").select("*").order("created_at").execute()
     return r.data
 
 
