@@ -2,8 +2,35 @@
 import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
+import matplotlib.font_manager as fm
+from PIL import Image, ImageDraw
 
 BAR_COLOR = "#1F7A6C"
+
+# Emoji correspondentes às 8 posições da escala usada nas técnicas de emocards.
+FACE_EMOJI = ["😠", "🙁", "😕", "😐", "🙂", "😊", "😄", "🤩"]
+
+# Fontes com glifos de emoji coloridos, em ordem de preferência conforme o SO.
+# No Streamlit Community Cloud, "fonts-noto-color-emoji" é instalada via packages.txt.
+_EMOJI_FONT_CANDIDATES = ["Noto Color Emoji", "Segoe UI Emoji", "Apple Color Emoji", "Noto Emoji"]
+_emoji_font_cache = {}
+
+
+def _emoji_font_prop(size=16):
+    """Tenta localizar uma fonte com emoji instalada no sistema. Retorna None se não achar
+    (nesse caso os gráficos continuam funcionando normalmente, só sem o emoji desenhado)."""
+    if size in _emoji_font_cache:
+        return _emoji_font_cache[size]
+    prop = None
+    for name in _EMOJI_FONT_CANDIDATES:
+        try:
+            path = fm.findfont(fm.FontProperties(family=name), fallback_to_default=False)
+            prop = fm.FontProperties(fname=path, size=size)
+            break
+        except Exception:
+            continue
+    _emoji_font_cache[size] = prop
+    return prop
 
 
 def three_e_diagram_html():
@@ -77,9 +104,62 @@ def make_bar_chart(title, labels, counts):
     for i, v in enumerate(counts):
         if v > 0:
             ax.text(i + 1, v + 0.05, str(v), ha="center", fontsize=9, fontweight="bold")
+
+    # Emoji abaixo de cada barra, um por posição da escala (1..8), se houver fonte disponível.
+    emoji_prop = _emoji_font_prop(17)
+    if emoji_prop is not None and len(labels) == len(FACE_EMOJI):
+        for i, xi in enumerate(x):
+            ax.text(
+                xi, -0.16, FACE_EMOJI[i], transform=ax.get_xaxis_transform(),
+                ha="center", va="top", fontproperties=emoji_prop, clip_on=False,
+            )
+        fig.subplots_adjust(bottom=0.24)
+
     fig.tight_layout()
     return fig
 
 
 def legend_caption(labels):
-    return "  •  ".join(f"**{i+1}** {lbl}" for i, lbl in enumerate(labels))
+    return "  •  ".join(
+        f"{FACE_EMOJI[i] if i < len(FACE_EMOJI) else ''} **{i+1}** {lbl}" for i, lbl in enumerate(labels)
+    )
+
+
+def three_e_canvas_background(width=360, height=430):
+    """Fundo do canvas 3E: balão de fala, nuvem de pensamento e um boneco com a
+    cabeça em branco, para o participante desenhar um rosto ou objetos que
+    representem sua emoção/experiência."""
+    img = Image.new("RGB", (width, height), (255, 255, 255))
+    d = ImageDraw.Draw(img)
+    color = (58, 69, 82)
+
+    # balão de fala (comentários) - canto superior esquerdo
+    d.rounded_rectangle([10, 10, 175, 95], radius=18, outline=color, width=3)
+    d.polygon([(55, 93), (82, 93), (48, 122)], outline=color, width=3)
+    d.text((22, 45), "fala", fill=color)
+
+    # nuvem de pensamento (pensamentos) - canto superior direito
+    cloud = [
+        (195, 20, 255, 70), (230, 8, 292, 55), (262, 25, 330, 78),
+        (222, 48, 308, 100), (196, 46, 258, 92),
+    ]
+    for box in cloud:
+        d.ellipse(box, outline=color, width=3)
+    d.ellipse([228, 102, 244, 118], outline=color, width=3)
+    d.ellipse([246, 120, 264, 140], outline=color, width=3)
+    d.text((235, 58), "pensa-\nmento", fill=color)
+
+    # boneco: cabeça em branco (para desenhar) + corpo
+    cx = width // 2
+    head_r = 48
+    head_top = 175
+    d.ellipse([cx - head_r, head_top, cx + head_r, head_top + head_r * 2],
+              outline=color, width=3)
+    body_top = head_top + head_r * 2
+    d.line([cx, body_top, cx, body_top + 95], fill=color, width=3)
+    d.line([cx, body_top + 15, cx - 48, body_top + 58], fill=color, width=3)
+    d.line([cx, body_top + 15, cx + 48, body_top + 58], fill=color, width=3)
+    d.line([cx, body_top + 95, cx - 38, body_top + 158], fill=color, width=3)
+    d.line([cx, body_top + 95, cx + 38, body_top + 158], fill=color, width=3)
+
+    return img
