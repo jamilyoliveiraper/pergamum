@@ -22,10 +22,15 @@ create table if not exists techniques (
   id uuid primary key default gen_random_uuid(),
   project_id uuid references projects(id) on delete cascade,
   name text not null,
-  type text not null default 'emocards', -- 'emocards' ou 'notes'
+  type text not null default 'emocards', -- 'emocards', 'notes' ou '3e' (como a técnica se comporta na sessão)
+  template_key text, -- de qual item do catálogo (TECHNIQUE_CATALOG em db.py) essa técnica veio
   labels jsonb default '["Muito insatisfeito","Insatisfeito","Levemente insatisfeito","Neutro","Levemente satisfeito","Satisfeito","Muito satisfeito","Encantado"]',
   created_at timestamptz default now()
 );
+
+-- Se você já tinha rodado uma versão anterior deste schema, rode também esta linha
+-- para adicionar a coluna nova numa tabela já existente:
+alter table techniques add column if not exists template_key text;
 
 create table if not exists technique_tasks (
   id uuid primary key default gen_random_uuid(),
