@@ -1,0 +1,5 @@
+streamlit>=1.32
+supabase>=2.4.0
+pandas>=2.0
+matplotlib>=3.7
+fpdf2>=2.7
