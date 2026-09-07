@@ -1,5 +1,6 @@
 """Geração do relatório em PDF (agregado por tarefa) usando fpdf2."""
 import io
+import base64
 from datetime import datetime
 from fpdf import FPDF
 from charts import make_bar_chart, emo_counts_by_task
@@ -27,6 +28,7 @@ def build_project_pdf(project, techniques, tests, entries):
     pdf.ln(6)
 
     emo_techs = [t for t in techniques if t["type"] == "emocards"]
+    three_e_techs = [t for t in techniques if t["type"] == "3e"]
     wrote_anything = False
 
     for tech in emo_techs:
@@ -75,7 +77,28 @@ def build_project_pdf(project, techniques, tests, entries):
             pdf.image(img, w=380)
             pdf.ln(4)
 
-        notes = [e for e in test_entries if e.get("note")]
+        for tech in three_e_techs:
+            e3 = next((e for e in test_entries if e.get("technique_id") == tech["id"]), None)
+            if not e3:
+                continue
+            if pdf.get_y() > 640:
+                pdf.add_page()
+            pdf.set_font("Helvetica", "B", 12)
+            pdf.cell(0, 18, f"{tech['name']} (3E)", ln=1)
+            pdf.set_font("Helvetica", "", 10.5)
+            if e3.get("note"):
+                pdf.multi_cell(0, 13, e3["note"])
+            if e3.get("drawing"):
+                try:
+                    img_bytes = io.BytesIO(base64.b64decode(e3["drawing"]))
+                    if pdf.get_y() > 560:
+                        pdf.add_page()
+                    pdf.image(img_bytes, w=200)
+                except Exception:
+                    pass
+            pdf.ln(6)
+
+        notes = [e for e in test_entries if e.get("note") and e.get("technique_id") not in {t["id"] for t in three_e_techs}]
         if notes:
             pdf.set_font("Helvetica", "I", 10)
             for e in notes:
