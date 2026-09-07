@@ -49,7 +49,7 @@ def sb():
 
 # ---------------- projects ----------------
 def list_projects():
-    r = sb().table("projects").select("*").execute()
+    r = sb().table("projects").select("*").order("created_at").execute()
     return r.data
 
 
@@ -177,10 +177,10 @@ def list_entries_for_project(project_id):
     return r.data
 
 
-def add_entry(test_id, technique_id, task_name, emotion=None, note=None):
+def add_entry(test_id, technique_id, task_name, emotion=None, note=None, drawing=None):
     sb().table("entries").insert({
         "test_id": test_id, "technique_id": technique_id, "task_name": task_name,
-        "emotion": emotion, "note": note,
+        "emotion": emotion, "note": note, "drawing": drawing,
     }).execute()
 
 
