@@ -7,11 +7,39 @@ DEFAULT_EMO_LABELS = [
     "Levemente satisfeito", "Satisfeito", "Muito satisfeito", "Encantado",
 ]
 
+# Catálogo de técnicas disponíveis para adicionar ao roteiro de um projeto.
+# "render" define como a técnica se comporta na sessão:
+#   'emocards' -> escolha de emoção por tarefa (com tarefas cadastradas em ordem)
+#   '3e'       -> balão de fala + nuvem de pensamento por tarefa (tarefas em ordem)
+#   'notes'    -> anotação livre por tarefa (nome da tarefa digitado na hora)
+TECHNIQUE_CATALOG = [
+    {"key": "emocards", "name": "Emocards", "render": "emocards",
+     "desc": "Cartões de emoção (escala de 8) escolhidos pelo participante em cada tarefa."},
+    {"key": "3e", "name": "3E — Fala e Pensamento", "render": "3e",
+     "desc": "Balão de fala e nuvem de pensamento para registrar experiências e emoções em cada tarefa."},
+    {"key": "think_aloud", "name": "Pensar em voz alta", "render": "notes",
+     "desc": "Registro livre do que o participante fala enquanto realiza a tarefa."},
+    {"key": "five_sec", "name": "Teste dos 5 segundos", "render": "notes",
+     "desc": "Primeiras impressões registradas logo após a exposição à tela."},
+    {"key": "card_sorting", "name": "Card sorting", "render": "notes",
+     "desc": "Registro de como o participante organizou os cartões em categorias."},
+    {"key": "sus", "name": "Questionário SUS", "render": "notes",
+     "desc": "Anotações e pontuação do questionário padronizado de usabilidade."},
+    {"key": "journey_map", "name": "Mapa de jornada", "render": "notes",
+     "desc": "Registro de etapas, ações e sentimentos ao longo da jornada."},
+    {"key": "interview", "name": "Entrevista contextual", "render": "notes",
+     "desc": "Perguntas e respostas registradas durante ou após o uso."},
+]
+
+
+def catalog_by_key(key):
+    return next((c for c in TECHNIQUE_CATALOG if c["key"] == key), None)
+
 
 @st.cache_resource
-def get_client() -> Client:
-    url = st.secrets["SUPABASE_URL"].strip()
-    key = st.secrets["SUPABASE_KEY"].strip()
+def get_client():
+    url = st.secrets["SUPABASE_URL"]
+    key = st.secrets["SUPABASE_KEY"]
     return create_client(url, key)
 
 
@@ -20,25 +48,9 @@ def sb():
 
 
 # ---------------- projects ----------------
-from postgrest.exceptions import APIError
-
 def list_projects():
-    try:
-        r = (
-            sb()
-            .table("projects")
-            .select("*")
-            .order("created_at")
-            .execute()
-        )
-        return r.data
-
-    except APIError as e:
-        st.write("Código:", e.code)
-        st.write("Mensagem:", e.message)
-        st.write("Detalhes:", e.details)
-        st.write("Hint:", e.hint)
-        return []
+    r = sb().table("projects").select("*").order("created_at").execute()
+    return r.data
 
 
 def get_project(project_id):
@@ -49,10 +61,7 @@ def get_project(project_id):
 def create_project(name, description):
     r = sb().table("projects").insert({"name": name, "description": description}).execute()
     project = r.data[0]
-    sb().table("techniques").insert({
-        "project_id": project["id"], "name": "Emocards", "type": "emocards",
-        "labels": DEFAULT_EMO_LABELS,
-    }).execute()
+    add_technique_from_catalog(project["id"], "emocards")
     return project
 
 
@@ -84,15 +93,25 @@ def list_techniques(project_id):
     return r.data
 
 
-def add_technique(project_id, name, ttype):
-    payload = {"project_id": project_id, "name": name, "type": ttype}
-    if ttype == "emocards":
+def add_technique_from_catalog(project_id, template_key):
+    tpl = catalog_by_key(template_key)
+    if not tpl:
+        return
+    payload = {
+        "project_id": project_id, "name": tpl["name"], "type": tpl["render"],
+        "template_key": tpl["key"],
+    }
+    if tpl["render"] == "emocards":
         payload["labels"] = DEFAULT_EMO_LABELS
     sb().table("techniques").insert(payload).execute()
 
 
 def remove_technique(technique_id):
     sb().table("techniques").delete().eq("id", technique_id).execute()
+
+
+def rename_technique(technique_id, name):
+    sb().table("techniques").update({"name": name}).eq("id", technique_id).execute()
 
 
 def update_emo_label(technique_id, labels):
