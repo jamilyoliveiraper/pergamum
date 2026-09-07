@@ -7,6 +7,40 @@ from PIL import Image, ImageDraw
 
 BAR_COLOR = "#1F7A6C"
 
+# Cor roxa usada em todo o questionário e no gráfico do AttrakDiff.
+ATTRAK_COLOR = "#6C3FB5"
+ATTRAK_COLOR_DARK = "#54318F"
+
+# Os 18 pares de palavras do questionário AttrakDiff usado neste app, na ordem em que
+# aparecem no gráfico (de cima para baixo), agrupados nas 4 dimensões clássicas:
+# QPR = Qualidade Pragmática, QHE = Qualidade Hedônica-Estímulo,
+# QHI = Qualidade Hedônica-Identidade, ATT = Atratividade.
+ATTRAKDIFF_ITEMS = [
+    ("QPR", "Técnico", "Humano"),
+    ("QPR", "Complicado", "Simples"),
+    ("QPR", "Imprevisível", "Previsível"),
+    ("QPR", "Confuso", "Bem Estruturado"),
+    ("QPR", "Incontrolável", "Gerenciável"),
+    ("QHE", "Sem imaginação", "Criativo"),
+    ("QHE", "Cauteloso", "Ousado"),
+    ("QHE", "Entediante", "Chamativo"),
+    ("QHE", "Pouco exigente", "Desafiador"),
+    ("QHI", "Não profissional", "Profissional"),
+    ("QHI", "Não apresentável", "Apresentável"),
+    ("QHI", "De baixa qualidade", "De alta qualidade"),
+    ("QHI", "Alienador", "Integrador"),
+    ("QHI", "Me afasta das pessoas", "Me aproxima das pessoas"),
+    ("ATT", "Decepcionado", "Realizado"),
+    ("ATT", "Feio", "Bonito"),
+    ("ATT", "Mau", "Bom"),
+    ("ATT", "Desencorajador", "Motivador"),
+]
+
+
+def attrakdiff_item_key(left, right):
+    """Chave estável de um item, usada como task_name na tabela entries."""
+    return f"{left} – {right}"
+
 # Emoji correspondentes às 8 posições da escala usada nas técnicas de emocards.
 FACE_EMOJI = ["😠", "🙁", "😕", "😐", "🙂", "😊", "😄", "🤩"]
 
@@ -85,6 +119,86 @@ def emo_counts_by_task(entries, technique_id, task_order):
         if t not in ordered:
             ordered[t] = result[t]
     return ordered
+
+
+def attrakdiff_scores_from_entries(entries, technique_id, items=None):
+    """Retorna {chave_do_item: média das respostas (-3..3)} a partir de uma lista de
+    entries. Itens sem nenhuma resposta ficam de fora do dicionário."""
+    items = items or ATTRAKDIFF_ITEMS
+    valid_keys = {attrakdiff_item_key(l, r) for _, l, r in items}
+    sums, counts = {}, {}
+    for e in entries:
+        if e.get("technique_id") != technique_id or e.get("emotion") is None:
+            continue
+        key = e["task_name"]
+        if key not in valid_keys:
+            continue
+        sums[key] = sums.get(key, 0) + e["emotion"]
+        counts[key] = counts.get(key, 0) + 1
+    return {k: sums[k] / counts[k] for k in sums}
+
+
+def make_attrakdiff_chart(scores, items=None, title=None, color=ATTRAK_COLOR, series_label=None):
+    """Gráfico de linha do AttrakDiff: escala -3 a 3 no topo, um par de palavras por
+    linha (agrupados em QPR/QHE/QHI/ATT), no estilo do diagrama clássico do instrumento."""
+    items = items or ATTRAKDIFF_ITEMS
+    n = len(items)
+    fig_h = max(4.2, n * 0.42 + 1.3)
+    fig, ax = plt.subplots(figsize=(9, fig_h))
+
+    y_positions = list(range(n, 0, -1))  # primeiro item no topo
+
+    xs, ys = [], []
+    for y, (_, l, r) in zip(y_positions, items):
+        val = scores.get(attrakdiff_item_key(l, r))
+        if val is not None:
+            xs.append(val)
+            ys.append(y)
+    if xs:
+        ax.plot(xs, ys, "-o", color=color, linewidth=2.2, markersize=6, label=series_label)
+
+    ax.set_xlim(-3.6, 3.6)
+    ax.set_ylim(0.3, n + 0.7)
+    ax.set_xticks(range(-3, 4))
+    ax.xaxis.set_ticks_position("top")
+    ax.xaxis.set_label_position("top")
+    ax.tick_params(axis="x", labelsize=10, length=0)
+    for x in range(-3, 4):
+        ax.axvline(
+            x, color="#222222" if x == 0 else "#D5D5D5",
+            linewidth=1.4 if x == 0 else 0.8, zorder=0,
+        )
+
+    # Rótulo da dimensão (QPR/QHE/QHI/ATT) embutido antes do primeiro item de cada
+    # bloco, como um pequeno cabeçalho de seção — evita sobrepor o texto dos itens.
+    prev_group = None
+    ytick_labels = []
+    for (g, l, r) in items:
+        pair = f"{l} – {r}"
+        if g != prev_group:
+            ytick_labels.append(f"[{g}]  {pair}")
+            prev_group = g
+        else:
+            ytick_labels.append(pair)
+
+    ax.set_yticks(y_positions)
+    ax.set_yticklabels(ytick_labels, fontsize=9)
+    for lbl in ax.get_yticklabels():
+        if lbl.get_text().startswith("["):
+            lbl.set_fontweight("bold")
+            lbl.set_color("#555555")
+    ax.spines["right"].set_visible(False)
+    ax.spines["left"].set_visible(False)
+    ax.spines["bottom"].set_visible(False)
+    ax.spines["top"].set_visible(False)
+    ax.tick_params(axis="y", length=0)
+
+    if title:
+        ax.set_title(title, fontsize=13, fontweight="bold", pad=16)
+    if series_label:
+        ax.legend(loc="lower right", fontsize=8, frameon=False)
+    fig.tight_layout()
+    return fig
 
 
 def make_bar_chart(title, labels, counts):
