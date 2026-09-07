@@ -10,7 +10,7 @@ import pandas as pd
 import streamlit as st
 
 import db
-from charts import make_bar_chart, emo_counts_from_entries, emo_counts_by_task, legend_caption
+from charts import make_bar_chart, emo_counts_from_entries, emo_counts_by_task, legend_caption, three_e_diagram_html
 from pdf_export import build_project_pdf
 
 st.set_page_config(page_title="Campo — testes de usabilidade", layout="wide")
@@ -51,6 +51,20 @@ def confirm_emotion_dialog(emotion, label, task_name, technique_id, test_id):
         st.rerun()
     if c2.button("Confirmar", type="primary", use_container_width=True):
         db.add_entry(test_id, technique_id, task_name, emotion=emotion)
+        st.rerun()
+
+
+@st.dialog("Confirmar registro")
+def confirm_3e_dialog(fala, pensamento, task_name, technique_id, test_id):
+    st.write(f"Tarefa: **{task_name}**")
+    st.markdown(f"**Fala:** {fala or '_(vazio)_'}")
+    st.markdown(f"**Pensamento / emoção:** {pensamento or '_(vazio)_'}")
+    c1, c2 = st.columns(2)
+    if c1.button("Cancelar", use_container_width=True, key="cancel_3e"):
+        st.rerun()
+    if c2.button("Confirmar", type="primary", use_container_width=True, key="confirm_3e"):
+        note = f"Fala: {fala}\n\nPensamento/emoção: {pensamento}"
+        db.add_entry(test_id, technique_id, task_name, note=note)
         st.rerun()
 
 
@@ -160,6 +174,46 @@ def render_runner():
                         with cols[i % 4]:
                             if st.button(f"{FACE_EMOJI[i]}\n\n{i+1}. {lbl}", key=f"emo_{i}_{current_task}", use_container_width=True):
                                 confirm_emotion_dialog(i + 1, lbl, current_task, tech_id, test["id"])
+    elif active_tech["type"] == "3e":
+        tasks = [t["task_name"] for t in active_tech["tasks"]]
+        if not tasks:
+            st.warning("Essa técnica ainda não tem tarefas cadastradas. Adicione as tarefas, na ordem em que serão testadas, na aba **Roteiro & técnicas**.")
+        else:
+            pointer_key = f"pointer_{test['id']}_{tech_id}"
+            if pointer_key not in st.session_state:
+                st.session_state[pointer_key] = 0
+            idx = st.session_state[pointer_key]
+
+            if idx >= len(tasks):
+                st.success("Todas as tarefas desta técnica já foram testadas nesta sessão.")
+            else:
+                current_task = tasks[idx]
+                answered = next(
+                    (e for e in entries if e["technique_id"] == tech_id and e["task_name"] == current_task),
+                    None,
+                )
+                st.caption(f"Tarefa {idx + 1} de {len(tasks)}")
+                st.markdown(
+                    f"<div style='display:inline-block;background:#fff;border:1px solid #DCE3E7;"
+                    f"border-radius:14px;padding:12px 18px;font-size:18px;font-weight:600;'>{current_task}</div>",
+                    unsafe_allow_html=True,
+                )
+                st.write("")
+                if answered:
+                    st.write("Registro salvo para esta tarefa:")
+                    st.info(answered.get("note") or "")
+                    if st.button("Seguir ➜", type="primary", key=f"next_3e_{current_task}"):
+                        st.session_state[pointer_key] += 1
+                        st.rerun()
+                else:
+                    st.markdown(three_e_diagram_html(), unsafe_allow_html=True)
+                    fala = st.text_area("💬 O que a pessoa disse", key=f"fala_{current_task}")
+                    pensamento = st.text_area("💭 O que a pessoa sentiu / pensou (emoção)", key=f"pensamento_{current_task}")
+                    if st.button("Registrar", type="primary", key=f"reg_3e_{current_task}"):
+                        if not fala.strip() and not pensamento.strip():
+                            st.warning("Escreva a fala e/ou o pensamento/emoção antes de registrar.")
+                        else:
+                            confirm_3e_dialog(fala.strip(), pensamento.strip(), current_task, tech_id, test["id"])
     else:
         task_name = st.text_input("Nome da tarefa", key=f"notes_task_{test['id']}")
         note = st.text_area("Anotação — o que o participante disse ou fez?", key=f"notes_note_{test['id']}")
@@ -289,6 +343,11 @@ def render_project():
         st.markdown("### Técnicas")
         for tech in techniques:
             with st.expander(f"{tech['name']} ({tech['type']})", expanded=False):
+                new_name = st.text_input("Nome desta técnica no projeto", value=tech["name"], key=f"name_{tech['id']}")
+                if new_name != tech["name"] and st.button("Salvar nome", key=f"save_name_{tech['id']}"):
+                    db.rename_technique(tech["id"], new_name)
+                    st.rerun()
+
                 if tech["type"] == "emocards":
                     labels = list(tech["labels"])
                     changed = False
@@ -301,6 +360,7 @@ def render_project():
                         db.update_emo_label(tech["id"], labels)
                         st.rerun()
 
+                if tech["type"] in ("emocards", "3e"):
                     st.markdown("**Tarefas (na ordem em que serão testadas)**")
                     for i, task in enumerate(tech["tasks"]):
                         c1, c2 = st.columns([5, 1])
@@ -319,11 +379,16 @@ def render_project():
                     st.rerun()
 
         st.divider()
-        new_tech_name = st.text_input("Nome da nova técnica", key="new_tech_name")
-        new_tech_type = st.selectbox("Tipo", ["emocards", "notes"], key="new_tech_type")
-        if st.button("Adicionar técnica"):
-            if new_tech_name.strip():
-                db.add_technique(project["id"], new_tech_name.strip(), new_tech_type)
+        st.markdown("### Adicionar técnica ao roteiro")
+        added_keys = {t.get("template_key") for t in techniques}
+        available = [c for c in db.TECHNIQUE_CATALOG if c["key"] not in added_keys]
+        if not available:
+            st.caption("Todas as técnicas do catálogo já foram adicionadas.")
+        for c in available:
+            c1, c2 = st.columns([5, 1])
+            c1.markdown(f"**{c['name']}**  \n{c['desc']}")
+            if c2.button("+ Adicionar", key=f"add_cat_{c['key']}"):
+                db.add_technique_from_catalog(project["id"], c["key"])
                 st.rerun()
 
     with tabs[3]:
