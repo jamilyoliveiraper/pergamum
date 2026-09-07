@@ -1,6 +1,26 @@
 # Campo — versão Streamlit + Supabase
 
-## Novidades desta versão
+## Novidades desta versão (atualização mais recente)
+
+- **Emocards avança sozinho**: assim que você confirma a emoção de uma tarefa, o app já
+  pula para a próxima tarefa automaticamente — não existe mais o botão "Seguir".
+- **3E virou só um link**: a tela da técnica 3E não pede mais nada no app. Ela mostra um
+  botão que abre o template pronto (balão de fala, nuvem de pensamento e boneco para
+  desenhar) direto no Miro. Nada do que é feito no Miro é salvo no banco do Campo.
+- **Nova técnica: AttrakDiff**: questionário de 18 pares de palavras (agrupados em
+  Qualidade Pragmática, Qualidade Hedônica-Estímulo, Qualidade Hedônica-Identidade e
+  Atratividade), respondido em escala de -3 a +3, com os números sempre visíveis no topo
+  enquanto você rola a lista de perguntas. Ao final, os resultados aparecem como um
+  gráfico de linha roxo, no mesmo estilo do diagrama clássico do AttrakDiff.
+- **Relatórios só com Emocards e AttrakDiff**: tanto o relatório de uma sessão quanto o
+  relatório agregado do projeto (na tela e no PDF) agora mostram somente os resultados de
+  Emocards e AttrakDiff. As demais técnicas (3E, anotações livres etc.) continuam
+  funcionando normalmente durante a sessão, só não entram mais nesses relatórios.
+- Esta versão precisa do Streamlit **1.36 ou mais recente** (por causa do parâmetro `key`
+  em `st.container`, usado para deixar os números do AttrakDiff fixos no topo enquanto
+  você rola a tela). O `requirements.txt` já foi atualizado.
+
+## Novidades da versão anterior
 
 - **Excluir projetos**: além do botão já existente na aba "Visão geral" do projeto, agora também dá
   para excluir direto pela barra lateral, clicando no ícone 🗑️ ao lado do nome do projeto (pede
