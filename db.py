@@ -20,9 +20,25 @@ def sb():
 
 
 # ---------------- projects ----------------
+from postgrest.exceptions import APIError
+
 def list_projects():
-    r = sb().table("projects").select("*").order("created_at").execute()
-    return r.data
+    try:
+        r = (
+            sb()
+            .table("projects")
+            .select("*")
+            .order("created_at")
+            .execute()
+        )
+        return r.data
+
+    except APIError as e:
+        st.write("Código:", e.code)
+        st.write("Mensagem:", e.message)
+        st.write("Detalhes:", e.details)
+        st.write("Hint:", e.hint)
+        return []
 
 
 def get_project(project_id):
