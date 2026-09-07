@@ -1,5 +1,34 @@
 # Campo — versão Streamlit + Supabase
 
+## Novidades desta versão
+
+- **Excluir projetos**: além do botão já existente na aba "Visão geral" do projeto, agora também dá
+  para excluir direto pela barra lateral, clicando no ícone 🗑️ ao lado do nome do projeto (pede
+  confirmação antes de apagar).
+- **Adicionar tarefa apertando Enter**: o campo "Nova tarefa" (na técnica Emocards) agora é um
+  formulário — basta digitar o nome e apertar **Enter**, sem precisar clicar no botão.
+- **Emojis nos gráficos**: os gráficos de barra agora mostram o emoji de cada emoção (😠🙁😕😐🙂😊😄🤩)
+  abaixo da barra correspondente, além de já aparecerem nas legendas de texto. Para os emojis
+  aparecerem coloridos quando publicado no Streamlit Community Cloud, este pacote inclui um arquivo
+  `packages.txt` que instala a fonte `fonts-noto-color-emoji` no servidor — **não precisa fazer nada
+  além do deploy normal**. Rodando localmente em Windows/Mac isso já funciona nativamente; em Linux
+  local, instale essa mesma fonte do seu sistema se quiser vê-los no gráfico (`sudo apt install
+  fonts-noto-color-emoji`), embora ela já apareça nas legendas de texto de qualquer forma.
+- **Técnica 3E sem tarefas cadastradas**: a 3E deixou de pedir uma lista de tarefas. Agora ela é
+  preenchida **uma única vez, ao final da sessão**: o(a) testador(a) pede ao participante para
+  escrever seus comentários no balão de fala, seus pensamentos na nuvem de pensamento, e para
+  **desenhar na cabeça do boneco** (usando o mouse/touch) um rosto ou objetos que representem sua
+  emoção ou experiência com o produto testado. O desenho é salvo junto com o texto e aparece também
+  no relatório em PDF.
+  - Sobre o template enviado (link do Google Drive): não foi possível abrir esse link a partir daqui,
+    porque este ambiente não tem acesso a `drive.google.com` (só a um conjunto restrito de domínios
+    técnicos) e o link é de visualização privada. Por isso, recriei um template equivalente
+    (balão de fala + nuvem de pensamento + boneco com a cabeça em branco para desenhar) diretamente
+    no app. Se o template do Drive tiver um layout específico que você queira reproduzir com
+    exatidão, me envie a imagem diretamente na conversa (upload de arquivo) que eu ajusto o desenho
+    de fundo do canvas para bater com ele.
+
+
 App multi-usuário: todos os facilitadores acessam a **mesma URL** e leem/gravam no **mesmo banco de dados**
 (Supabase/Postgres). Os dados ficam salvos no banco a cada ação — se você fechar a aba, o teste continua
 exatamente de onde parou (basta reabrir o link da sessão, ou reabrir o teste "em andamento" na aba Testes).
@@ -8,6 +37,9 @@ exatamente de onde parou (basta reabrir o link da sessão, ou reabrir o teste "e
 
 1. Crie uma conta em https://supabase.com e crie um novo projeto.
 2. Vá em **SQL Editor > New query**, cole o conteúdo de `schema.sql` deste pacote e rode.
+   - Se você já tinha rodado uma versão anterior deste projeto, o próprio `schema.sql` já inclui a linha
+     `alter table techniques add column if not exists template_key text;` para atualizar a tabela existente
+     sem perder os dados.
 3. Vá em **Settings > API** e copie:
    - **Project URL** → vai virar `SUPABASE_URL`
    - **anon public key** → vai virar `SUPABASE_KEY`
@@ -16,9 +48,11 @@ exatamente de onde parou (basta reabrir o link da sessão, ou reabrir o teste "e
 
 ## 2. Colocar o código num repositório GitHub
 
-Suba esta pasta inteira (`app.py`, `db.py`, `charts.py`, `pdf_export.py`, `requirements.txt`, `schema.sql`)
-para um repositório no GitHub. **Não suba** o arquivo `.streamlit/secrets.toml` (só o `.example`) — as chaves
-do Supabase são configuradas direto no Streamlit Cloud, no passo 3.
+Suba esta pasta inteira (`app.py`, `db.py`, `charts.py`, `pdf_export.py`, `requirements.txt`,
+`packages.txt`, `schema.sql`) para um repositório no GitHub. **Não suba** o arquivo
+`.streamlit/secrets.toml` (só o `.example`) — as chaves do Supabase são configuradas direto no
+Streamlit Cloud, no passo 3. O `packages.txt` é lido automaticamente pelo Streamlit Community Cloud
+para instalar pacotes do sistema (aqui, a fonte de emoji colorida usada nos gráficos).
 
 ## 3. Publicar no Streamlit Community Cloud (gratuito, não roda na sua máquina)
 
