@@ -1,9 +1,12 @@
-"""Geração do relatório em PDF (agregado por tarefa) usando fpdf2."""
+"""Geração do relatório em PDF (agregado por tarefa) usando fpdf2.
+
+O relatório mostra apenas os resultados de Emocards e AttrakDiff — as demais
+técnicas (3E, anotações livres etc.) não entram neste PDF.
+"""
 import io
-import base64
 from datetime import datetime
 from fpdf import FPDF
-from charts import make_bar_chart, emo_counts_by_task
+from charts import make_bar_chart, emo_counts_by_task, attrakdiff_scores_from_entries, make_attrakdiff_chart, ATTRAK_COLOR
 
 
 def _fig_to_png_bytes(fig):
@@ -28,9 +31,11 @@ def build_project_pdf(project, techniques, tests, entries):
     pdf.ln(6)
 
     emo_techs = [t for t in techniques if t["type"] == "emocards"]
-    three_e_techs = [t for t in techniques if t["type"] == "3e"]
+    attrak_techs = [t for t in techniques if t["type"] == "attrakdiff"]
+    report_tech_ids = {t["id"] for t in emo_techs + attrak_techs}
     wrote_anything = False
 
+    # ---- agregado de todas as sessoes: Emocards ----
     for tech in emo_techs:
         task_order = [t["task_name"] for t in tech.get("tasks", [])]
         by_task = emo_counts_by_task(entries, tech["id"], task_order)
@@ -47,8 +52,24 @@ def build_project_pdf(project, techniques, tests, entries):
             pdf.ln(4)
             wrote_anything = True
 
+    # ---- agregado de todas as sessoes: AttrakDiff ----
+    for tech in attrak_techs:
+        scores = attrakdiff_scores_from_entries(entries, tech["id"])
+        if not scores:
+            continue
+        pdf.set_font("Helvetica", "B", 13)
+        pdf.cell(0, 20, f"{tech['name']} - media de todas as sessoes", ln=1)
+        fig = make_attrakdiff_chart(scores, color=ATTRAK_COLOR)
+        img = _fig_to_png_bytes(fig)
+        if pdf.get_y() > 500:
+            pdf.add_page()
+        pdf.image(img, w=440)
+        pdf.ln(4)
+        wrote_anything = True
+
+    # ---- uma secao por sessao, so com Emocards e AttrakDiff ----
     for test in tests:
-        test_entries = [e for e in entries if e["test_id"] == test["id"]]
+        test_entries = [e for e in entries if e["test_id"] == test["id"] and e["technique_id"] in report_tech_ids]
         if not test_entries:
             continue
         if pdf.get_y() > 600:
@@ -77,34 +98,17 @@ def build_project_pdf(project, techniques, tests, entries):
             pdf.image(img, w=380)
             pdf.ln(4)
 
-        for tech in three_e_techs:
-            e3 = next((e for e in test_entries if e.get("technique_id") == tech["id"]), None)
-            if not e3:
+        for tech in attrak_techs:
+            scores = attrakdiff_scores_from_entries(test_entries, tech["id"])
+            if not scores:
                 continue
-            if pdf.get_y() > 640:
+            fig = make_attrakdiff_chart(scores, color=ATTRAK_COLOR)
+            img = _fig_to_png_bytes(fig)
+            if pdf.get_y() > 460:
                 pdf.add_page()
-            pdf.set_font("Helvetica", "B", 12)
-            pdf.cell(0, 18, f"{tech['name']} (3E)", ln=1)
-            pdf.set_font("Helvetica", "", 10.5)
-            if e3.get("note"):
-                pdf.multi_cell(0, 13, e3["note"])
-            if e3.get("drawing"):
-                try:
-                    img_bytes = io.BytesIO(base64.b64decode(e3["drawing"]))
-                    if pdf.get_y() > 560:
-                        pdf.add_page()
-                    pdf.image(img_bytes, w=200)
-                except Exception:
-                    pass
-            pdf.ln(6)
+            pdf.image(img, w=380)
+            pdf.ln(4)
 
-        notes = [e for e in test_entries if e.get("note") and e.get("technique_id") not in {t["id"] for t in three_e_techs}]
-        if notes:
-            pdf.set_font("Helvetica", "I", 10)
-            for e in notes:
-                if pdf.get_y() > 760:
-                    pdf.add_page()
-                pdf.multi_cell(0, 13, f"{e['task_name']}: {e['note']}")
         pdf.ln(8)
 
     if not wrote_anything:
