@@ -3,96 +3,29 @@
 Rode com: streamlit run app.py
 Precisa de SUPABASE_URL e SUPABASE_KEY em st.secrets (veja README.md).
 """
-import io
 import base64
 from datetime import datetime
 
 import pandas as pd
 import streamlit as st
-import streamlit.components.v1 as components
 
 import db
 from charts import (
     make_bar_chart, emo_counts_from_entries, emo_counts_by_task, legend_caption,
-    FACE_EMOJI, three_e_canvas_background,
+    FACE_EMOJI, ATTRAKDIFF_ITEMS, ATTRAK_COLOR, ATTRAK_COLOR_DARK,
+    attrakdiff_item_key, attrakdiff_scores_from_entries, make_attrakdiff_chart,
 )
 from pdf_export import build_project_pdf
 
 st.set_page_config(page_title="Campo — testes de usabilidade", layout="wide")
 
-THREE_E_TASK_NAME = "Sessão completa"
-
-
-def _pil_to_base64(img):
-    buf = io.BytesIO()
-    img.save(buf, format="PNG")
-    return base64.b64encode(buf.getvalue()).decode()
-
-
-def three_e_canvas_component(width, height, bg_b64, key):
-    """Canvas HTML5 nativo (sem dependências de terceiros) para o participante
-    desenhar sobre o boneco. Usa apenas a API estável components.v1.html, que não
-    quebra entre versões do Streamlit. O desenho é baixado como PNG e reenviado
-    logo abaixo via upload, porque um componente puramente em HTML não tem canal
-    de volta para o Python (diferente de um componente Python/JS empacotado, que
-    é o que quebrava antes ao atualizar o Streamlit)."""
-    html = f"""
-    <div style="text-align:center;font-family:sans-serif;">
-      <canvas id="c_{key}" width="{width}" height="{height}"
-              style="border:1px solid #DCE3E7;border-radius:8px;touch-action:none;cursor:crosshair;background:#fff;"></canvas>
-      <br/>
-      <button onclick="clear_{key}()" style="margin-top:8px;padding:6px 14px;">Limpar</button>
-      <button onclick="download_{key}()" style="margin-top:8px;padding:6px 14px;font-weight:bold;">⬇ Baixar desenho (PNG)</button>
-    </div>
-    <script>
-      const canvas_{key} = document.getElementById("c_{key}");
-      const ctx_{key} = canvas_{key}.getContext("2d");
-      const bg_{key} = new Image();
-      bg_{key}.onload = () => ctx_{key}.drawImage(bg_{key}, 0, 0, {width}, {height});
-      bg_{key}.src = "data:image/png;base64,{bg_b64}";
-      let drawing_{key} = false;
-      function pos_{key}(e) {{
-        const rect = canvas_{key}.getBoundingClientRect();
-        const t = e.touches ? e.touches[0] : e;
-        return [t.clientX - rect.left, t.clientY - rect.top];
-      }}
-      function start_{key}(e) {{
-        drawing_{key} = true;
-        const [x, y] = pos_{key}(e);
-        ctx_{key}.beginPath();
-        ctx_{key}.moveTo(x, y);
-        e.preventDefault();
-      }}
-      function move_{key}(e) {{
-        if (!drawing_{key}) return;
-        const [x, y] = pos_{key}(e);
-        ctx_{key}.lineTo(x, y);
-        ctx_{key}.strokeStyle = "#3A4552";
-        ctx_{key}.lineWidth = 3;
-        ctx_{key}.lineCap = "round";
-        ctx_{key}.stroke();
-        e.preventDefault();
-      }}
-      function stop_{key}() {{ drawing_{key} = false; }}
-      canvas_{key}.addEventListener("mousedown", start_{key});
-      canvas_{key}.addEventListener("touchstart", start_{key});
-      canvas_{key}.addEventListener("mousemove", move_{key});
-      canvas_{key}.addEventListener("touchmove", move_{key});
-      window.addEventListener("mouseup", stop_{key});
-      window.addEventListener("touchend", stop_{key});
-      function clear_{key}() {{
-        ctx_{key}.clearRect(0, 0, {width}, {height});
-        ctx_{key}.drawImage(bg_{key}, 0, 0, {width}, {height});
-      }}
-      function download_{key}() {{
-        const link = document.createElement("a");
-        link.download = "desenho_3e.png";
-        link.href = canvas_{key}.toDataURL("image/png");
-        link.click();
-      }}
-    </script>
-    """
-    components.html(html, height=height + 90)
+# Template da técnica 3E no Miro (balão de fala, nuvem de pensamento e boneco para desenhar).
+THREE_E_MIRO_LINK = (
+    "https://miro.com/welcomeonboard/"
+    "RXhNMkp1ZWh5aVpaK0VNSDhRM1NEbDFlaDhYenBKWFVacG9wZFdpTHhZdjR2dGIxTTBPLzJBcjJHZXhjS3JXWm9O"
+    "VGV3N1JGd0Y5S2ZsUTlrM2RSUXZpTTZHU1pLdkd5dSthd2NMQjRFZmpJeGZ0ay9kWlZIc1ZzcG16NXlpTEZnbHpz"
+    "a3F6REdEcmNpNEFOMmJXWXBBPT0hdjE=?share_link_id=769349062550"
+)
 
 
 # ============================= navegação (sobrevive a reload / novo facilitador) =============================
@@ -120,7 +53,7 @@ current_tab = _qp_get("tab", "overview")
 
 # ============================= diálogo de confirmação de emoção =============================
 @st.dialog("Confirmar emoção")
-def confirm_emotion_dialog(emotion, label, task_name, technique_id, test_id):
+def confirm_emotion_dialog(emotion, label, task_name, technique_id, test_id, pointer_key):
     st.write(f"Tarefa: **{task_name}**")
     st.markdown(f"Registrar a emoção **{emotion} — {label}** para esta tarefa?")
     c1, c2 = st.columns(2)
@@ -128,22 +61,8 @@ def confirm_emotion_dialog(emotion, label, task_name, technique_id, test_id):
         st.rerun()
     if c2.button("Confirmar", type="primary", use_container_width=True):
         db.add_entry(test_id, technique_id, task_name, emotion=emotion)
-        st.rerun()
-
-
-@st.dialog("Confirmar registro")
-def confirm_3e_dialog(fala, pensamento, drawing_b64, technique_id, test_id):
-    st.write(f"Tarefa: **{THREE_E_TASK_NAME}**")
-    st.markdown(f"**Fala:** {fala or '_(vazio)_'}")
-    st.markdown(f"**Pensamento / emoção:** {pensamento or '_(vazio)_'}")
-    if drawing_b64:
-        st.image(base64.b64decode(drawing_b64), caption="Desenho do participante", width=200)
-    c1, c2 = st.columns(2)
-    if c1.button("Cancelar", use_container_width=True, key="cancel_3e"):
-        st.rerun()
-    if c2.button("Confirmar", type="primary", use_container_width=True, key="confirm_3e"):
-        note = f"Fala: {fala}\n\nPensamento/emoção: {pensamento}"
-        db.add_entry(test_id, technique_id, THREE_E_TASK_NAME, note=note, drawing=drawing_b64)
+        # Avança direto para a próxima tarefa — não é mais necessário clicar em "Seguir".
+        st.session_state[pointer_key] = st.session_state.get(pointer_key, 0) + 1
         st.rerun()
 
 
@@ -231,17 +150,21 @@ def render_runner():
         else:
             pointer_key = f"pointer_{test['id']}_{tech_id}"
             if pointer_key not in st.session_state:
-                st.session_state[pointer_key] = 0
+                # Ao (re)abrir a sessão, pula direto para a primeira tarefa ainda sem
+                # resposta — não é mais necessário clicar em "Seguir" para chegar lá.
+                answered_tasks = {
+                    e["task_name"] for e in entries if e["technique_id"] == tech_id
+                }
+                idx0 = 0
+                while idx0 < len(tasks) and tasks[idx0] in answered_tasks:
+                    idx0 += 1
+                st.session_state[pointer_key] = idx0
             idx = st.session_state[pointer_key]
 
             if idx >= len(tasks):
                 st.success("Todas as tarefas desta técnica já foram testadas nesta sessão.")
             else:
                 current_task = tasks[idx]
-                answered = any(
-                    e["technique_id"] == tech_id and e["task_name"] == current_task
-                    for e in entries
-                )
                 st.caption(f"Tarefa {idx + 1} de {len(tasks)}")
                 st.markdown(
                     f"<div style='display:inline-block;background:#fff;border:1px solid #DCE3E7;"
@@ -249,54 +172,83 @@ def render_runner():
                     unsafe_allow_html=True,
                 )
                 st.write("")
-                if answered:
-                    st.write("Emoção registrada para esta tarefa.")
-                    if st.button("Seguir ➜", type="primary"):
-                        st.session_state[pointer_key] += 1
-                        st.rerun()
-                else:
-                    labels = active_tech["labels"]
-                    cols = st.columns(4)
-                    for i, lbl in enumerate(labels):
-                        with cols[i % 4]:
-                            if st.button(f"{FACE_EMOJI[i]}\n\n{i+1}. {lbl}", key=f"emo_{i}_{current_task}", use_container_width=True):
-                                confirm_emotion_dialog(i + 1, lbl, current_task, tech_id, test["id"])
+                labels = active_tech["labels"]
+                cols = st.columns(4)
+                for i, lbl in enumerate(labels):
+                    with cols[i % 4]:
+                        if st.button(f"{FACE_EMOJI[i]}\n\n{i+1}. {lbl}", key=f"emo_{i}_{current_task}", use_container_width=True):
+                            confirm_emotion_dialog(i + 1, lbl, current_task, tech_id, test["id"], pointer_key)
     elif active_tech["type"] == "3e":
-        answered = next(
-            (e for e in entries if e["technique_id"] == tech_id and e["task_name"] == THREE_E_TASK_NAME),
-            None,
+        st.caption("Técnica 3E")
+        st.write(
+            "Peça ao participante para escrever seus comentários no balão de fala, seus "
+            "pensamentos na nuvem de pensamento, e para desenhar na cabeça do boneco um rosto "
+            "ou objetos que representem sua emoção ou experiência — tudo direto no template do Miro."
         )
-        st.caption("Técnica 3E — preenchida uma vez, ao final da sessão com este participante.")
-        if answered:
-            st.success("Registro 3E já feito nesta sessão.")
-            st.markdown(f"**Fala:** {answered.get('note', '').split('Pensamento/emoção:')[0].replace('Fala:', '').strip()}")
-            if "Pensamento/emoção:" in (answered.get("note") or ""):
-                st.markdown(f"**Pensamento/emoção:** {answered['note'].split('Pensamento/emoção:')[1].strip()}")
-            if answered.get("drawing"):
-                st.image(base64.b64decode(answered["drawing"]), caption="Desenho do participante", width=220)
-        else:
-            st.write(
-                "Peça ao participante para escrever seus **comentários no balão de fala**, seus "
-                "**pensamentos na nuvem de pensamento**, e para **desenhar na cabeça do boneco** um "
-                "rosto ou objetos que representem sua emoção ou experiência."
-            )
-            bg = three_e_canvas_background()
-            bg_b64 = _pil_to_base64(bg)
-            three_e_canvas_component(bg.width, bg.height, bg_b64, key=f"3e_{test['id']}")
-            drawing_upload = st.file_uploader(
-                "1️⃣ Desenhe acima e clique em **⬇ Baixar desenho** · 2️⃣ envie aqui o PNG baixado",
-                type=["png"], key=f"upload_3e_{test['id']}",
-            )
-            fala = st.text_area("💬 Comentários do participante (balão de fala)", key=f"fala_3e_{test['id']}")
-            pensamento = st.text_area("💭 Pensamentos do participante (nuvem de pensamento)", key=f"pensamento_3e_{test['id']}")
-            if st.button("Registrar", type="primary", key=f"reg_3e_{test['id']}"):
-                if not fala.strip() and not pensamento.strip() and drawing_upload is None:
-                    st.warning("Escreva a fala/pensamento e/ou envie o desenho antes de registrar.")
-                else:
-                    drawing_b64 = (
-                        base64.b64encode(drawing_upload.getvalue()).decode() if drawing_upload is not None else None
-                    )
-                    confirm_3e_dialog(fala.strip(), pensamento.strip(), drawing_b64, tech_id, test["id"])
+        st.link_button("🔗 Abrir template 3E no Miro", THREE_E_MIRO_LINK, use_container_width=True)
+    elif active_tech["type"] == "attrakdiff":
+        answers_map = {
+            e["task_name"]: e["emotion"]
+            for e in entries
+            if e["technique_id"] == tech_id and e.get("emotion") is not None
+        }
+        st.caption(f"AttrakDiff — {len(answers_map)} de {len(ATTRAKDIFF_ITEMS)} respondidas")
+
+        box_key = f"attrakdiff_box_{tech_id}"
+        st.markdown(
+            f"""
+            <style>
+            .st-key-{box_key} div[data-testid="stHorizontalBlock"]:first-of-type {{
+                position: sticky;
+                top: 0;
+                z-index: 999;
+                background: #FFFFFF;
+                padding-top: 6px;
+                padding-bottom: 6px;
+                border-bottom: 1px solid #E4E4E4;
+            }}
+            .st-key-{box_key} button[kind="primary"] {{
+                background-color: {ATTRAK_COLOR} !important;
+                border-color: {ATTRAK_COLOR} !important;
+                color: #FFFFFF !important;
+            }}
+            .st-key-{box_key} button[kind="primary"]:hover {{
+                background-color: {ATTRAK_COLOR_DARK} !important;
+                border-color: {ATTRAK_COLOR_DARK} !important;
+            }}
+            </style>
+            """,
+            unsafe_allow_html=True,
+        )
+
+        col_ratio = [3.4] + [1] * 7
+        with st.container(height=560, border=True, key=box_key):
+            header_cols = st.columns(col_ratio)
+            header_cols[0].write("")
+            for i, n in enumerate(range(-3, 4)):
+                header_cols[i + 1].markdown(
+                    f"<div style='text-align:center;font-weight:700;color:{ATTRAK_COLOR};'>{n}</div>",
+                    unsafe_allow_html=True,
+                )
+
+            for group, left, right in ATTRAKDIFF_ITEMS:
+                item_key = attrakdiff_item_key(left, right)
+                current_val = answers_map.get(item_key)
+                row_cols = st.columns(col_ratio)
+                row_cols[0].markdown(
+                    f"<div style='font-size:13px;line-height:1.3;padding-top:6px;'>"
+                    f"<b>{left}</b><br><span style='color:#888;'>{right}</span></div>",
+                    unsafe_allow_html=True,
+                )
+                for i, n in enumerate(range(-3, 4)):
+                    selected = current_val == n
+                    if row_cols[i + 1].button(
+                        str(n), key=f"ad_{tech_id}_{item_key}_{n}",
+                        type="primary" if selected else "secondary",
+                        use_container_width=True,
+                    ):
+                        db.set_single_answer(test["id"], tech_id, item_key, n)
+                        st.rerun()
     else:
         task_name = st.text_input("Nome da tarefa", key=f"notes_task_{test['id']}")
         note = st.text_area("Anotação — o que o participante disse ou fez?", key=f"notes_note_{test['id']}")
@@ -355,6 +307,7 @@ def render_result():
 
     entries = db.list_entries(test["id"])
     emo_techs = [t for t in techniques if t["type"] == "emocards"]
+    attrak_techs = [t for t in techniques if t["type"] == "attrakdiff"]
     any_chart = False
     for tech in emo_techs:
         counts = emo_counts_from_entries(entries, tech["id"])
@@ -364,21 +317,35 @@ def render_result():
             fig = make_bar_chart(f"Emoções gerais — {test['participant']}", tech["labels"], counts)
             st.pyplot(fig, use_container_width=False)
             st.caption(legend_caption(tech["labels"]))
+    for tech in attrak_techs:
+        scores = attrakdiff_scores_from_entries(entries, tech["id"])
+        if scores:
+            any_chart = True
+            st.subheader(tech["name"])
+            fig = make_attrakdiff_chart(scores, title=f"AttrakDiff — {test['participant']}", color=ATTRAK_COLOR)
+            st.pyplot(fig, use_container_width=False)
     if not any_chart:
-        st.caption("Sem dados de emocards para gerar gráfico nesta sessão.")
+        st.caption("Sem dados de emocards ou AttrakDiff para gerar gráfico nesta sessão.")
+
+    # O relatório da sessão mostra apenas os resultados de Emocards e AttrakDiff.
+    report_tech_ids = {t["id"] for t in emo_techs + attrak_techs}
+    report_entries = [e for e in entries if e["technique_id"] in report_tech_ids]
 
     st.subheader("Todos os registros")
-    if not entries:
-        st.caption("Nenhum registro nessa sessão.")
+    if not report_entries:
+        st.caption("Nenhum registro de Emocards ou AttrakDiff nessa sessão.")
     else:
-        for e in entries:
+        for e in report_entries:
             tech = next((t for t in techniques if t["id"] == e["technique_id"]), None)
-            detail = tech["labels"][e["emotion"] - 1] if (tech and tech["type"] == "emocards" and e.get("emotion")) else (e.get("note") or "")
+            if tech and tech["type"] == "emocards" and e.get("emotion"):
+                detail = tech["labels"][e["emotion"] - 1]
+            elif tech and tech["type"] == "attrakdiff" and e.get("emotion") is not None:
+                detail = f"{e['emotion']:+d}"
+            else:
+                detail = e.get("note") or ""
             st.write(f"**{e['task_name']}** — {tech['name'] if tech else ''}: {detail}")
-            if e.get("drawing"):
-                st.image(base64.b64decode(e["drawing"]), width=160)
 
-        df = pd.DataFrame(entries)[["task_name", "technique_id", "emotion", "note", "created_at"]]
+        df = pd.DataFrame(report_entries)[["task_name", "technique_id", "emotion", "note", "created_at"]]
         st.download_button(
             "Baixar .csv desta sessão", df.to_csv(index=False).encode("utf-8"),
             file_name=f"resultado_{test['participant']}.csv", mime="text/csv",
@@ -467,8 +434,14 @@ def render_project():
                             st.rerun()
                 elif tech["type"] == "3e":
                     st.caption(
-                        "Técnica 3E: não é necessário cadastrar tarefas. O próprio testador registra "
-                        "a fala, o pensamento e o desenho do participante uma vez, ao final da sessão."
+                        "Técnica 3E: não é necessário cadastrar tarefas nem registrar nada aqui. "
+                        "Durante a sessão, o app mostra um link que abre o template pronto no Miro."
+                    )
+                elif tech["type"] == "attrakdiff":
+                    st.caption(
+                        "AttrakDiff: os 18 pares de palavras do questionário são fixos e não podem ser "
+                        "editados aqui. Durante a sessão, o app mostra o questionário completo, com "
+                        "escala de -3 a +3 por item."
                     )
 
                 if st.button("Excluir técnica", key=f"rm_tech_{tech['id']}"):
@@ -524,7 +497,9 @@ def render_project():
         total_entries = len(all_entries)
         st.caption(f"{len(tests)} sessão(ões) · {total_entries} registro(s) no total")
 
+        # O relatório do projeto também mostra apenas Emocards e AttrakDiff.
         emo_techs = [t for t in techniques if t["type"] == "emocards"]
+        attrak_techs = [t for t in techniques if t["type"] == "attrakdiff"]
         any_chart = False
         for tech in emo_techs:
             task_order = [t["task_name"] for t in tech["tasks"]]
@@ -536,6 +511,15 @@ def render_project():
                     fig = make_bar_chart(task_name, tech["labels"], counts)
                     st.pyplot(fig, use_container_width=False)
                 st.caption(legend_caption(tech["labels"]))
+        for tech in attrak_techs:
+            scores = attrakdiff_scores_from_entries(all_entries, tech["id"])
+            if scores:
+                any_chart = True
+                st.subheader(tech["name"])
+                fig = make_attrakdiff_chart(
+                    scores, title=f"{tech['name']} — média de todas as sessões", color=ATTRAK_COLOR,
+                )
+                st.pyplot(fig, use_container_width=False)
         if not any_chart:
             st.caption("Ainda não há dados suficientes para o relatório agregado.")
 
