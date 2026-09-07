@@ -49,7 +49,7 @@ def sb():
 
 # ---------------- projects ----------------
 def list_projects():
-    r = sb().table("projects").select("*").order("created_at").execute()
+    r = sb().table("projects").select("*").execute()
     return r.data
 
 
