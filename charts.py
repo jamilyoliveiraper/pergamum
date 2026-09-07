@@ -6,6 +6,34 @@ import matplotlib.pyplot as plt
 BAR_COLOR = "#1F7A6C"
 
 
+def three_e_diagram_html():
+    """Ilustração simples (balão de fala + boneco + nuvem de pensamento) para a técnica 3E."""
+    return """
+    <svg viewBox="0 0 340 175" width="300" xmlns="http://www.w3.org/2000/svg">
+      <rect x="8" y="8" width="130" height="82" rx="16" fill="none" stroke="#3A4552" stroke-width="2"/>
+      <polygon points="55,90 78,90 50,116" fill="none" stroke="#3A4552" stroke-width="2"/>
+      <ellipse cx="168" cy="108" rx="14" ry="16" fill="none" stroke="#3A4552" stroke-width="2"/>
+      <line x1="168" y1="124" x2="168" y2="150" stroke="#3A4552" stroke-width="2"/>
+      <line x1="168" y1="130" x2="152" y2="145" stroke="#3A4552" stroke-width="2"/>
+      <line x1="168" y1="130" x2="184" y2="145" stroke="#3A4552" stroke-width="2"/>
+      <line x1="168" y1="150" x2="155" y2="170" stroke="#3A4552" stroke-width="2"/>
+      <line x1="168" y1="150" x2="181" y2="170" stroke="#3A4552" stroke-width="2"/>
+      <circle cx="195" cy="98" r="5" fill="none" stroke="#3A4552" stroke-width="2"/>
+      <circle cx="206" cy="88" r="8" fill="none" stroke="#3A4552" stroke-width="2"/>
+      <path d="M220 30
+               a20 20 0 0 1 38 -8
+               a18 18 0 0 1 34 4
+               a16 16 0 0 1 20 22
+               a16 16 0 0 1 -8 28
+               a18 18 0 0 1 -30 10
+               a20 20 0 0 1 -32 -4
+               a18 18 0 0 1 -22 -20
+               a16 16 0 0 1 0 -32 z"
+            fill="none" stroke="#3A4552" stroke-width="2"/>
+    </svg>
+    """
+
+
 def emo_counts_from_entries(entries, technique_id):
     """Conta emoções (1..8) de uma lista de entries, ignorando a tarefa."""
     counts = [0] * 8
