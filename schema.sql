@@ -56,9 +56,14 @@ create table if not exists entries (
   technique_id uuid references techniques(id) on delete cascade,
   task_name text not null,
   emotion int, -- 1 a 8, usado quando a técnica é 'emocards'
-  note text,   -- usado quando a técnica é 'notes'
+  note text,   -- usado quando a técnica é 'notes' ou '3e' (fala + pensamento em texto)
+  drawing text, -- PNG em base64, usado na técnica '3e' (desenho do participante sobre o boneco)
   created_at timestamptz default now()
 );
+
+-- Se você já tinha rodado uma versão anterior deste schema, rode também esta linha
+-- para adicionar a coluna nova numa tabela já existente:
+alter table entries add column if not exists drawing text;
 
 -- Por simplicidade, o app usa a chave anônima do Supabase e o RLS fica desligado
 -- (qualquer pessoa com o link do app e acesso à internet consegue ler/escrever).
