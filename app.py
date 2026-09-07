@@ -9,8 +9,7 @@ from datetime import datetime
 
 import pandas as pd
 import streamlit as st
-from streamlit_drawable_canvas import st_canvas
-from PIL import Image
+import streamlit.components.v1 as components
 
 import db
 from charts import (
@@ -22,6 +21,78 @@ from pdf_export import build_project_pdf
 st.set_page_config(page_title="Campo — testes de usabilidade", layout="wide")
 
 THREE_E_TASK_NAME = "Sessão completa"
+
+
+def _pil_to_base64(img):
+    buf = io.BytesIO()
+    img.save(buf, format="PNG")
+    return base64.b64encode(buf.getvalue()).decode()
+
+
+def three_e_canvas_component(width, height, bg_b64, key):
+    """Canvas HTML5 nativo (sem dependências de terceiros) para o participante
+    desenhar sobre o boneco. Usa apenas a API estável components.v1.html, que não
+    quebra entre versões do Streamlit. O desenho é baixado como PNG e reenviado
+    logo abaixo via upload, porque um componente puramente em HTML não tem canal
+    de volta para o Python (diferente de um componente Python/JS empacotado, que
+    é o que quebrava antes ao atualizar o Streamlit)."""
+    html = f"""
+    <div style="text-align:center;font-family:sans-serif;">
+      <canvas id="c_{key}" width="{width}" height="{height}"
+              style="border:1px solid #DCE3E7;border-radius:8px;touch-action:none;cursor:crosshair;background:#fff;"></canvas>
+      <br/>
+      <button onclick="clear_{key}()" style="margin-top:8px;padding:6px 14px;">Limpar</button>
+      <button onclick="download_{key}()" style="margin-top:8px;padding:6px 14px;font-weight:bold;">⬇ Baixar desenho (PNG)</button>
+    </div>
+    <script>
+      const canvas_{key} = document.getElementById("c_{key}");
+      const ctx_{key} = canvas_{key}.getContext("2d");
+      const bg_{key} = new Image();
+      bg_{key}.onload = () => ctx_{key}.drawImage(bg_{key}, 0, 0, {width}, {height});
+      bg_{key}.src = "data:image/png;base64,{bg_b64}";
+      let drawing_{key} = false;
+      function pos_{key}(e) {{
+        const rect = canvas_{key}.getBoundingClientRect();
+        const t = e.touches ? e.touches[0] : e;
+        return [t.clientX - rect.left, t.clientY - rect.top];
+      }}
+      function start_{key}(e) {{
+        drawing_{key} = true;
+        const [x, y] = pos_{key}(e);
+        ctx_{key}.beginPath();
+        ctx_{key}.moveTo(x, y);
+        e.preventDefault();
+      }}
+      function move_{key}(e) {{
+        if (!drawing_{key}) return;
+        const [x, y] = pos_{key}(e);
+        ctx_{key}.lineTo(x, y);
+        ctx_{key}.strokeStyle = "#3A4552";
+        ctx_{key}.lineWidth = 3;
+        ctx_{key}.lineCap = "round";
+        ctx_{key}.stroke();
+        e.preventDefault();
+      }}
+      function stop_{key}() {{ drawing_{key} = false; }}
+      canvas_{key}.addEventListener("mousedown", start_{key});
+      canvas_{key}.addEventListener("touchstart", start_{key});
+      canvas_{key}.addEventListener("mousemove", move_{key});
+      canvas_{key}.addEventListener("touchmove", move_{key});
+      window.addEventListener("mouseup", stop_{key});
+      window.addEventListener("touchend", stop_{key});
+      function clear_{key}() {{
+        ctx_{key}.clearRect(0, 0, {width}, {height});
+        ctx_{key}.drawImage(bg_{key}, 0, 0, {width}, {height});
+      }}
+      function download_{key}() {{
+        const link = document.createElement("a");
+        link.download = "desenho_3e.png";
+        link.href = canvas_{key}.toDataURL("image/png");
+        link.click();
+      }}
+    </script>
+    """
+    components.html(html, height=height + 90)
 
 
 # ============================= navegação (sobrevive a reload / novo facilitador) =============================
@@ -210,32 +281,21 @@ def render_runner():
                 "rosto ou objetos que representem sua emoção ou experiência."
             )
             bg = three_e_canvas_background()
-            canvas_result = st_canvas(
-                fill_color="rgba(0, 0, 0, 0)",
-                stroke_width=3,
-                stroke_color="#3A4552",
-                background_image=bg,
-                height=bg.height,
-                width=bg.width,
-                drawing_mode="freedraw",
-                key=f"canvas_3e_{test['id']}",
+            bg_b64 = _pil_to_base64(bg)
+            three_e_canvas_component(bg.width, bg.height, bg_b64, key=f"3e_{test['id']}")
+            drawing_upload = st.file_uploader(
+                "1️⃣ Desenhe acima e clique em **⬇ Baixar desenho** · 2️⃣ envie aqui o PNG baixado",
+                type=["png"], key=f"upload_3e_{test['id']}",
             )
             fala = st.text_area("💬 Comentários do participante (balão de fala)", key=f"fala_3e_{test['id']}")
             pensamento = st.text_area("💭 Pensamentos do participante (nuvem de pensamento)", key=f"pensamento_3e_{test['id']}")
             if st.button("Registrar", type="primary", key=f"reg_3e_{test['id']}"):
-                has_drawing = canvas_result.image_data is not None and canvas_result.image_data[:, :, 3].any()
-                if not fala.strip() and not pensamento.strip() and not has_drawing:
-                    st.warning("Escreva a fala/pensamento e/ou faça o desenho antes de registrar.")
+                if not fala.strip() and not pensamento.strip() and drawing_upload is None:
+                    st.warning("Escreva a fala/pensamento e/ou envie o desenho antes de registrar.")
                 else:
-                    drawing_b64 = None
-                    if has_drawing:
-                        composed = Image.alpha_composite(
-                            bg.convert("RGBA"),
-                            Image.fromarray(canvas_result.image_data.astype("uint8"), "RGBA"),
-                        )
-                        buf = io.BytesIO()
-                        composed.convert("RGB").save(buf, format="PNG")
-                        drawing_b64 = base64.b64encode(buf.getvalue()).decode()
+                    drawing_b64 = (
+                        base64.b64encode(drawing_upload.getvalue()).decode() if drawing_upload is not None else None
+                    )
                     confirm_3e_dialog(fala.strip(), pensamento.strip(), drawing_b64, tech_id, test["id"])
     else:
         task_name = st.text_input("Nome da tarefa", key=f"notes_task_{test['id']}")
