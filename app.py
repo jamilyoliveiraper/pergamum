@@ -4,18 +4,24 @@ Rode com: streamlit run app.py
 Precisa de SUPABASE_URL e SUPABASE_KEY em st.secrets (veja README.md).
 """
 import io
+import base64
 from datetime import datetime
 
 import pandas as pd
 import streamlit as st
+from streamlit_drawable_canvas import st_canvas
+from PIL import Image
 
 import db
-from charts import make_bar_chart, emo_counts_from_entries, emo_counts_by_task, legend_caption, three_e_diagram_html
+from charts import (
+    make_bar_chart, emo_counts_from_entries, emo_counts_by_task, legend_caption,
+    FACE_EMOJI, three_e_canvas_background,
+)
 from pdf_export import build_project_pdf
 
 st.set_page_config(page_title="Campo — testes de usabilidade", layout="wide")
 
-FACE_EMOJI = ["😠", "🙁", "😕", "😐", "🙂", "😊", "😄", "🤩"]
+THREE_E_TASK_NAME = "Sessão completa"
 
 
 # ============================= navegação (sobrevive a reload / novo facilitador) =============================
@@ -55,16 +61,18 @@ def confirm_emotion_dialog(emotion, label, task_name, technique_id, test_id):
 
 
 @st.dialog("Confirmar registro")
-def confirm_3e_dialog(fala, pensamento, task_name, technique_id, test_id):
-    st.write(f"Tarefa: **{task_name}**")
+def confirm_3e_dialog(fala, pensamento, drawing_b64, technique_id, test_id):
+    st.write(f"Tarefa: **{THREE_E_TASK_NAME}**")
     st.markdown(f"**Fala:** {fala or '_(vazio)_'}")
     st.markdown(f"**Pensamento / emoção:** {pensamento or '_(vazio)_'}")
+    if drawing_b64:
+        st.image(base64.b64decode(drawing_b64), caption="Desenho do participante", width=200)
     c1, c2 = st.columns(2)
     if c1.button("Cancelar", use_container_width=True, key="cancel_3e"):
         st.rerun()
     if c2.button("Confirmar", type="primary", use_container_width=True, key="confirm_3e"):
         note = f"Fala: {fala}\n\nPensamento/emoção: {pensamento}"
-        db.add_entry(test_id, technique_id, task_name, note=note)
+        db.add_entry(test_id, technique_id, THREE_E_TASK_NAME, note=note, drawing=drawing_b64)
         st.rerun()
 
 
@@ -89,8 +97,16 @@ with st.sidebar:
         st.caption("Nenhum projeto ainda.")
     for p in projects:
         active = p["id"] == current_pid
-        if st.button(("• " if active else "") + p["name"], key=f"proj_{p['id']}", use_container_width=True):
+        c1, c2 = st.columns([5, 1])
+        if c1.button(("• " if active else "") + p["name"], key=f"proj_{p['id']}", use_container_width=True):
             goto(view="project", pid=p["id"], tab="overview")
+        with c2.popover("🗑️"):
+            st.write(f"Excluir **{p['name']}**? Essa ação não pode ser desfeita.")
+            if st.button("Confirmar exclusão", key=f"del_proj_side_{p['id']}", type="primary"):
+                db.delete_project(p["id"])
+                if active:
+                    st.query_params.clear()
+                st.rerun()
 
 
 # ============================= tela inicial =============================
@@ -175,45 +191,52 @@ def render_runner():
                             if st.button(f"{FACE_EMOJI[i]}\n\n{i+1}. {lbl}", key=f"emo_{i}_{current_task}", use_container_width=True):
                                 confirm_emotion_dialog(i + 1, lbl, current_task, tech_id, test["id"])
     elif active_tech["type"] == "3e":
-        tasks = [t["task_name"] for t in active_tech["tasks"]]
-        if not tasks:
-            st.warning("Essa técnica ainda não tem tarefas cadastradas. Adicione as tarefas, na ordem em que serão testadas, na aba **Roteiro & técnicas**.")
+        answered = next(
+            (e for e in entries if e["technique_id"] == tech_id and e["task_name"] == THREE_E_TASK_NAME),
+            None,
+        )
+        st.caption("Técnica 3E — preenchida uma vez, ao final da sessão com este participante.")
+        if answered:
+            st.success("Registro 3E já feito nesta sessão.")
+            st.markdown(f"**Fala:** {answered.get('note', '').split('Pensamento/emoção:')[0].replace('Fala:', '').strip()}")
+            if "Pensamento/emoção:" in (answered.get("note") or ""):
+                st.markdown(f"**Pensamento/emoção:** {answered['note'].split('Pensamento/emoção:')[1].strip()}")
+            if answered.get("drawing"):
+                st.image(base64.b64decode(answered["drawing"]), caption="Desenho do participante", width=220)
         else:
-            pointer_key = f"pointer_{test['id']}_{tech_id}"
-            if pointer_key not in st.session_state:
-                st.session_state[pointer_key] = 0
-            idx = st.session_state[pointer_key]
-
-            if idx >= len(tasks):
-                st.success("Todas as tarefas desta técnica já foram testadas nesta sessão.")
-            else:
-                current_task = tasks[idx]
-                answered = next(
-                    (e for e in entries if e["technique_id"] == tech_id and e["task_name"] == current_task),
-                    None,
-                )
-                st.caption(f"Tarefa {idx + 1} de {len(tasks)}")
-                st.markdown(
-                    f"<div style='display:inline-block;background:#fff;border:1px solid #DCE3E7;"
-                    f"border-radius:14px;padding:12px 18px;font-size:18px;font-weight:600;'>{current_task}</div>",
-                    unsafe_allow_html=True,
-                )
-                st.write("")
-                if answered:
-                    st.write("Registro salvo para esta tarefa:")
-                    st.info(answered.get("note") or "")
-                    if st.button("Seguir ➜", type="primary", key=f"next_3e_{current_task}"):
-                        st.session_state[pointer_key] += 1
-                        st.rerun()
+            st.write(
+                "Peça ao participante para escrever seus **comentários no balão de fala**, seus "
+                "**pensamentos na nuvem de pensamento**, e para **desenhar na cabeça do boneco** um "
+                "rosto ou objetos que representem sua emoção ou experiência."
+            )
+            bg = three_e_canvas_background()
+            canvas_result = st_canvas(
+                fill_color="rgba(0, 0, 0, 0)",
+                stroke_width=3,
+                stroke_color="#3A4552",
+                background_image=bg,
+                height=bg.height,
+                width=bg.width,
+                drawing_mode="freedraw",
+                key=f"canvas_3e_{test['id']}",
+            )
+            fala = st.text_area("💬 Comentários do participante (balão de fala)", key=f"fala_3e_{test['id']}")
+            pensamento = st.text_area("💭 Pensamentos do participante (nuvem de pensamento)", key=f"pensamento_3e_{test['id']}")
+            if st.button("Registrar", type="primary", key=f"reg_3e_{test['id']}"):
+                has_drawing = canvas_result.image_data is not None and canvas_result.image_data[:, :, 3].any()
+                if not fala.strip() and not pensamento.strip() and not has_drawing:
+                    st.warning("Escreva a fala/pensamento e/ou faça o desenho antes de registrar.")
                 else:
-                    st.markdown(three_e_diagram_html(), unsafe_allow_html=True)
-                    fala = st.text_area("💬 O que a pessoa disse", key=f"fala_{current_task}")
-                    pensamento = st.text_area("💭 O que a pessoa sentiu / pensou (emoção)", key=f"pensamento_{current_task}")
-                    if st.button("Registrar", type="primary", key=f"reg_3e_{current_task}"):
-                        if not fala.strip() and not pensamento.strip():
-                            st.warning("Escreva a fala e/ou o pensamento/emoção antes de registrar.")
-                        else:
-                            confirm_3e_dialog(fala.strip(), pensamento.strip(), current_task, tech_id, test["id"])
+                    drawing_b64 = None
+                    if has_drawing:
+                        composed = Image.alpha_composite(
+                            bg.convert("RGBA"),
+                            Image.fromarray(canvas_result.image_data.astype("uint8"), "RGBA"),
+                        )
+                        buf = io.BytesIO()
+                        composed.convert("RGB").save(buf, format="PNG")
+                        drawing_b64 = base64.b64encode(buf.getvalue()).decode()
+                    confirm_3e_dialog(fala.strip(), pensamento.strip(), drawing_b64, tech_id, test["id"])
     else:
         task_name = st.text_input("Nome da tarefa", key=f"notes_task_{test['id']}")
         note = st.text_area("Anotação — o que o participante disse ou fez?", key=f"notes_note_{test['id']}")
@@ -236,6 +259,8 @@ def render_runner():
             detail = tech["labels"][e["emotion"] - 1] if (tech and tech["type"] == "emocards" and e.get("emotion")) else (e.get("note") or "")
             c1, c2 = st.columns([5, 1])
             c1.write(f"**{e['task_name']}** — {detail}")
+            if e.get("drawing"):
+                c1.image(base64.b64decode(e["drawing"]), width=140)
             if c2.button("remover", key=f"del_{e['id']}"):
                 db.delete_entry(e["id"])
                 st.rerun()
@@ -290,6 +315,8 @@ def render_result():
             tech = next((t for t in techniques if t["id"] == e["technique_id"]), None)
             detail = tech["labels"][e["emotion"] - 1] if (tech and tech["type"] == "emocards" and e.get("emotion")) else (e.get("note") or "")
             st.write(f"**{e['task_name']}** — {tech['name'] if tech else ''}: {detail}")
+            if e.get("drawing"):
+                st.image(base64.b64decode(e["drawing"]), width=160)
 
         df = pd.DataFrame(entries)[["task_name", "technique_id", "emotion", "note", "created_at"]]
         st.download_button(
@@ -324,12 +351,16 @@ def render_project():
                 db.remove_member(m["id"])
                 st.rerun()
         st.divider()
-        mn = st.text_input("Nome", key="member_name")
-        me = st.text_input("E-mail", key="member_email")
-        if st.button("Adicionar membro"):
-            if mn.strip():
-                db.add_member(project["id"], mn.strip(), me.strip())
-                st.rerun()
+        with st.form(key="add_member_form", clear_on_submit=True):
+            mn = st.text_input("Nome", key="member_name")
+            me = st.text_input("E-mail", key="member_email")
+            submitted_member = st.form_submit_button("Adicionar membro")
+            if submitted_member:
+                if mn.strip():
+                    db.add_member(project["id"], mn.strip(), me.strip())
+                    st.rerun()
+                else:
+                    st.warning("Dê um nome ao membro.")
 
     with tabs[2]:
         st.text_area(
@@ -360,7 +391,7 @@ def render_project():
                         db.update_emo_label(tech["id"], labels)
                         st.rerun()
 
-                if tech["type"] in ("emocards", "3e"):
+                if tech["type"] == "emocards":
                     st.markdown("**Tarefas (na ordem em que serão testadas)**")
                     for i, task in enumerate(tech["tasks"]):
                         c1, c2 = st.columns([5, 1])
@@ -368,11 +399,17 @@ def render_project():
                         if c2.button("remover", key=f"rm_task_{task['id']}"):
                             db.remove_task(task["id"])
                             st.rerun()
-                    new_task = st.text_input("Nova tarefa", key=f"new_task_{tech['id']}")
-                    if st.button("Adicionar tarefa", key=f"add_task_{tech['id']}"):
-                        if new_task.strip():
+                    with st.form(key=f"add_task_form_{tech['id']}", clear_on_submit=True):
+                        new_task = st.text_input("Nova tarefa", key=f"new_task_{tech['id']}")
+                        submitted_task = st.form_submit_button("Adicionar tarefa")
+                        if submitted_task and new_task.strip():
                             db.add_task(tech["id"], new_task.strip())
                             st.rerun()
+                elif tech["type"] == "3e":
+                    st.caption(
+                        "Técnica 3E: não é necessário cadastrar tarefas. O próprio testador registra "
+                        "a fala, o pensamento e o desenho do participante uma vez, ao final da sessão."
+                    )
 
                 if st.button("Excluir técnica", key=f"rm_tech_{tech['id']}"):
                     db.remove_technique(tech["id"])
