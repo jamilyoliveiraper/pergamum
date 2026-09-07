@@ -10,9 +10,11 @@ DEFAULT_EMO_LABELS = [
 
 @st.cache_resource
 def get_client():
-    url = st.secrets["SUPABASE_URL"]
-    key = st.secrets["SUPABASE_KEY"]
-    return create_client(url, key)
+    st.write("URL:", st.secrets["SUPABASE_URL"])  # debug
+    return create_client(
+        st.secrets["SUPABASE_URL"],
+        st.secrets["SUPABASE_KEY"]
+    )
 
 
 def sb():
