@@ -16,7 +16,9 @@ TECHNIQUE_CATALOG = [
     {"key": "emocards", "name": "Emocards", "render": "emocards",
      "desc": "Cartões de emoção (escala de 8) escolhidos pelo participante em cada tarefa."},
     {"key": "3e", "name": "3E — Fala e Pensamento", "render": "3e",
-     "desc": "Balão de fala e nuvem de pensamento para registrar experiências e emoções em cada tarefa."},
+     "desc": "Abre o template da técnica 3E (balão de fala, nuvem de pensamento e boneco para desenhar) no Miro."},
+    {"key": "attrakdiff", "name": "AttrakDiff", "render": "attrakdiff",
+     "desc": "Questionário AttrakDiff (qualidade pragmática, hedônica e atratividade), com escala de -3 a +3 por par de palavras."},
     {"key": "think_aloud", "name": "Pensar em voz alta", "render": "notes",
      "desc": "Registro livre do que o participante fala enquanto realiza a tarefa."},
     {"key": "five_sec", "name": "Teste dos 5 segundos", "render": "notes",
@@ -186,3 +188,14 @@ def add_entry(test_id, technique_id, task_name, emotion=None, note=None, drawing
 
 def delete_entry(entry_id):
     sb().table("entries").delete().eq("id", entry_id).execute()
+
+
+def set_single_answer(test_id, technique_id, task_name, emotion):
+    """Garante um único registro por (teste, técnica, item) — apaga a resposta anterior
+    para esse item, se houver, e grava a nova. Usado no AttrakDiff, onde cada item do
+    questionário só pode ter uma resposta por sessão (o participante pode mudar de ideia
+    e clicar em outro valor)."""
+    sb().table("entries").delete().eq("test_id", test_id).eq("technique_id", technique_id).eq("task_name", task_name).execute()
+    sb().table("entries").insert({
+        "test_id": test_id, "technique_id": technique_id, "task_name": task_name, "emotion": emotion,
+    }).execute()
