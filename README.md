@@ -17,9 +17,19 @@
 - **Técnica 3E sem tarefas cadastradas**: a 3E deixou de pedir uma lista de tarefas. Agora ela é
   preenchida **uma única vez, ao final da sessão**: o(a) testador(a) pede ao participante para
   escrever seus comentários no balão de fala, seus pensamentos na nuvem de pensamento, e para
-  **desenhar na cabeça do boneco** (usando o mouse/touch) um rosto ou objetos que representem sua
-  emoção ou experiência com o produto testado. O desenho é salvo junto com o texto e aparece também
-  no relatório em PDF.
+  **desenhar na cabeça do boneco** (usando o mouse/touch, direto no navegador) um rosto ou objetos
+  que representem sua emoção ou experiência com o produto testado. O fluxo do desenho é:
+  1. desenhar no quadro que aparece na tela;
+  2. clicar em **⬇ Baixar desenho (PNG)** (o navegador salva o arquivo, geralmente na pasta Downloads);
+  3. enviar esse mesmo arquivo de volta logo abaixo, no campo de upload.
+
+  Esse vai-e-volta existe por um motivo técnico importante: a primeira versão usava uma biblioteca de
+  terceiros (`streamlit-drawable-canvas`) para um canvas com retorno direto ao Python, mas essa
+  biblioteca está **sem manutenção há anos** e quebrou assim que o Streamlit Cloud atualizou para uma
+  versão mais nova do Streamlit (foi o erro `RuntimeError` que você viu). Para não depender de um
+  pacote frágil que pode quebrar de novo a qualquer atualização, o desenho agora usa só a API estável
+  e nativa do Streamlit (`components.html` + `file_uploader`), que não tem esse risco — ao custo de um
+  passo extra (baixar e reenviar o arquivo) em vez de ficar tudo em uma única tela.
   - Sobre o template enviado (link do Google Drive): não foi possível abrir esse link a partir daqui,
     porque este ambiente não tem acesso a `drive.google.com` (só a um conjunto restrito de domínios
     técnicos) e o link é de visualização privada. Por isso, recriei um template equivalente
@@ -52,7 +62,9 @@ Suba esta pasta inteira (`app.py`, `db.py`, `charts.py`, `pdf_export.py`, `requi
 `packages.txt`, `schema.sql`) para um repositório no GitHub. **Não suba** o arquivo
 `.streamlit/secrets.toml` (só o `.example`) — as chaves do Supabase são configuradas direto no
 Streamlit Cloud, no passo 3. O `packages.txt` é lido automaticamente pelo Streamlit Community Cloud
-para instalar pacotes do sistema (aqui, a fonte de emoji colorida usada nos gráficos).
+para instalar pacotes do sistema (aqui, a fonte de emoji colorida usada nos gráficos). Não há mais
+nenhuma dependência de componente de terceiros para o desenho da técnica 3E — só bibliotecas
+mantidas ativamente (Streamlit, Pillow, matplotlib, fpdf2, supabase, pandas).
 
 ## 3. Publicar no Streamlit Community Cloud (gratuito, não roda na sua máquina)
 
