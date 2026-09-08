@@ -162,7 +162,7 @@ def make_attrakdiff_chart(scores, items=None, title=None, color=ATTRAK_COLOR, se
     ax.set_xticks(range(-3, 4))
     ax.xaxis.set_ticks_position("top")
     ax.xaxis.set_label_position("top")
-    ax.tick_params(axis="x", labelsize=10, length=0)
+    ax.tick_params(axis="x", labelsize=12, length=0)
     for x in range(-3, 4):
         ax.axvline(
             x, color="#222222" if x == 0 else "#D5D5D5",
@@ -182,7 +182,7 @@ def make_attrakdiff_chart(scores, items=None, title=None, color=ATTRAK_COLOR, se
             ytick_labels.append(pair)
 
     ax.set_yticks(y_positions)
-    ax.set_yticklabels(ytick_labels, fontsize=9)
+    ax.set_yticklabels(ytick_labels, fontsize=11)
     for lbl in ax.get_yticklabels():
         if lbl.get_text().startswith("["):
             lbl.set_fontweight("bold")
@@ -194,21 +194,23 @@ def make_attrakdiff_chart(scores, items=None, title=None, color=ATTRAK_COLOR, se
     ax.tick_params(axis="y", length=0)
 
     if title:
-        ax.set_title(title, fontsize=13, fontweight="bold", pad=16)
+        ax.set_title(title, fontsize=15, fontweight="bold", pad=16)
     if series_label:
-        ax.legend(loc="lower right", fontsize=8, frameon=False)
+        ax.legend(loc="lower right", fontsize=9, frameon=False)
     fig.tight_layout()
     return fig
 
 
 def make_bar_chart(title, labels, counts):
-    """Gráfico de barras simples e formal, com legenda numerada abaixo."""
-    fig, ax = plt.subplots(figsize=(7, 4))
+    """Gráfico de barras simples e formal. Em vez de números, cada barra é identificada
+    pelo emoji da emoção — pensado para caber lado a lado com outro gráfico na tela e,
+    por isso, com fontes maiores para continuar legível mesmo menor."""
+    fig, ax = plt.subplots(figsize=(5.4, 3.9))
     x = list(range(1, len(labels) + 1))
     ax.bar(x, counts, color=BAR_COLOR, width=0.6)
-    ax.set_title(title, fontsize=13, fontweight="bold")
-    ax.set_xticks(x)
-    ax.set_ylabel("Respostas")
+    ax.set_title(title, fontsize=15, fontweight="bold", pad=12)
+    ax.set_ylabel("Respostas", fontsize=12)
+    ax.tick_params(axis="y", labelsize=11)
     ax.spines["top"].set_visible(False)
     ax.spines["right"].set_visible(False)
     ax.yaxis.grid(True, linestyle="--", alpha=0.35)
@@ -217,17 +219,19 @@ def make_bar_chart(title, labels, counts):
     ax.set_ylim(0, max_count + 1 if max_count else 1)
     for i, v in enumerate(counts):
         if v > 0:
-            ax.text(i + 1, v + 0.05, str(v), ha="center", fontsize=9, fontweight="bold")
+            ax.text(i + 1, v + 0.06, str(v), ha="center", fontsize=11, fontweight="bold")
 
-    # Emoji abaixo de cada barra, um por posição da escala (1..8), se houver fonte disponível.
-    emoji_prop = _emoji_font_prop(17)
-    if emoji_prop is not None and len(labels) == len(FACE_EMOJI):
-        for i, xi in enumerate(x):
-            ax.text(
-                xi, -0.16, FACE_EMOJI[i], transform=ax.get_xaxis_transform(),
-                ha="center", va="top", fontproperties=emoji_prop, clip_on=False,
-            )
-        fig.subplots_adjust(bottom=0.24)
+    # Eixo x identificado só pelo emoji da emoção (sem número), em fonte grande.
+    ax.set_xticks(x)
+    if len(labels) == len(FACE_EMOJI):
+        emoji_prop = _emoji_font_prop(22)
+        tick_labels = ax.set_xticklabels(FACE_EMOJI, fontsize=22)
+        if emoji_prop is not None:
+            for lbl in tick_labels:
+                lbl.set_fontproperties(emoji_prop)
+    else:
+        ax.set_xticklabels([str(i) for i in x], fontsize=13)
+    ax.tick_params(axis="x", length=0, pad=8)
 
     fig.tight_layout()
     return fig

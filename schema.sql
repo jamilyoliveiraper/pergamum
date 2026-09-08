@@ -47,8 +47,16 @@ create table if not exists tests (
   participant text not null,
   test_datetime timestamptz default now(),
   status text not null default 'ongoing', -- 'ongoing' ou 'done'
+  access_code text, -- código único da sessão, usado no link enviado ao participante (?code=...)
   created_at timestamptz default now()
 );
+
+-- Se você já tinha rodado uma versão anterior deste schema, rode também estas linhas
+-- para adicionar a coluna nova numa tabela já existente e preencher as sessões antigas
+-- com um código (para que também tenham um link de acesso do participante):
+alter table tests add column if not exists access_code text;
+update tests set access_code = encode(gen_random_bytes(6), 'hex') where access_code is null;
+create unique index if not exists tests_access_code_idx on tests (access_code);
 
 create table if not exists entries (
   id uuid primary key default gen_random_uuid(),

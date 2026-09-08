@@ -1,7 +1,7 @@
 """Campo — testes de usabilidade (versão Streamlit + Supabase, multi-usuário).
 
 Rode com: streamlit run app.py
-Precisa de SUPABASE_URL e SUPABASE_KEY em st.secrets (veja README.md).
+Precisa de SUPABASE_URL, SUPABASE_KEY e ADMIN_PASSWORD em st.secrets (veja README.md).
 """
 import base64
 from datetime import datetime
@@ -49,9 +49,10 @@ view = _qp_get("view", "home")
 current_pid = _qp_get("pid", "")
 current_tid = _qp_get("tid", "")
 current_tab = _qp_get("tab", "overview")
+access_code = _qp_get("code", "")
 
 
-# ============================= diálogo de confirmação de emoção =============================
+# ============================= diálogos =============================
 @st.dialog("Confirmar emoção")
 def confirm_emotion_dialog(emotion, label, task_name, technique_id, test_id, pointer_key):
     st.write(f"Tarefa: **{task_name}**")
@@ -66,87 +67,26 @@ def confirm_emotion_dialog(emotion, label, task_name, technique_id, test_id, poi
         st.rerun()
 
 
-# ============================= sidebar =============================
-with st.sidebar:
-    st.markdown("## Campo")
-    st.caption("Sessões de teste de usabilidade")
-
-    with st.expander("+ Novo projeto"):
-        new_name = st.text_input("Nome do projeto", key="new_proj_name")
-        new_desc = st.text_area("Descrição", key="new_proj_desc")
-        if st.button("Criar projeto"):
-            if new_name.strip():
-                project = db.create_project(new_name.strip(), new_desc.strip())
-                goto(view="project", pid=project["id"], tab="overview")
-            else:
-                st.warning("Dê um nome ao projeto.")
-
-    st.divider()
-    projects = db.list_projects()
-    if not projects:
-        st.caption("Nenhum projeto ainda.")
-    for p in projects:
-        active = p["id"] == current_pid
-        c1, c2 = st.columns([5, 1])
-        if c1.button(("• " if active else "") + p["name"], key=f"proj_{p['id']}", use_container_width=True):
-            goto(view="project", pid=p["id"], tab="overview")
-        with c2.popover("🗑️"):
-            st.write(f"Excluir **{p['name']}**? Essa ação não pode ser desfeita.")
-            if st.button("Confirmar exclusão", key=f"del_proj_side_{p['id']}", type="primary"):
-                db.delete_project(p["id"])
-                if active:
-                    st.query_params.clear()
-                st.rerun()
+@st.dialog("Editar descrição do projeto")
+def edit_description_dialog(project):
+    new_desc = st.text_area("Descrição", value=project.get("description", ""), height=160, key="edit_desc_text")
+    c1, c2 = st.columns(2)
+    if c1.button("Cancelar", use_container_width=True):
+        st.rerun()
+    if c2.button("Salvar", type="primary", use_container_width=True):
+        db.update_project_description(project["id"], new_desc.strip())
+        st.rerun()
 
 
-# ============================= tela inicial =============================
-if not current_pid or view == "home":
-    st.title("Bem-vindo(a) ao Campo")
-    st.write("Crie um projeto na barra lateral para começar a registrar sessões de teste de usabilidade.")
-    st.info("Este app é compartilhado: qualquer facilitador com o link acessa o mesmo projeto e os mesmos dados, mesmo depois de fechar a aba.")
-    st.stop()
-
-project = db.get_project(current_pid)
-if not project:
-    st.error("Projeto não encontrado.")
-    st.stop()
-
-techniques = db.list_techniques(current_pid)
-for t in techniques:
-    t["tasks"] = db.list_tasks(t["id"])
-
-
-# ============================= tela: runner (rodando uma sessão) =============================
-def render_runner():
-    test = db.get_test(current_tid)
-    if not test:
-        goto(view="project", tab="tests")
-        return
-
-    st.title(f"Sessão com {test['participant']}")
-    co = f" · com {test['co_testers']}" if test.get("co_testers") else ""
-    st.caption(f"Facilitador: {test['tester']}{co} · {test.get('test_datetime','')}")
-
-    if st.button("Finalizar teste", type="primary"):
-        db.finish_test(test["id"])
-        goto(view="result", tid=test["id"])
-        return
-
-    tech_names = {t["id"]: t["name"] for t in techniques}
-    tech_id = st.selectbox(
-        "Técnica", options=list(tech_names.keys()),
-        format_func=lambda tid: tech_names[tid],
-        key=f"runner_tech_{test['id']}",
-    )
-    active_tech = next(t for t in techniques if t["id"] == tech_id)
-    entries = db.list_entries(test["id"])
-
-    st.divider()
-
+# ============================= interface de uma técnica (usada no runner do facilitador e na sessão do participante) =============================
+def render_technique_body(test, tech_id, active_tech, entries):
     if active_tech["type"] == "emocards":
         tasks = [t["task_name"] for t in active_tech["tasks"]]
         if not tasks:
-            st.warning("Essa técnica ainda não tem tarefas cadastradas. Adicione as tarefas, na ordem em que serão testadas, na aba **Roteiro & técnicas**.")
+            st.warning(
+                "Essa técnica ainda não tem tarefas cadastradas. Cadastre as tarefas, na "
+                "ordem em que serão testadas, na aba **Roteiro & técnicas**."
+            )
         else:
             pointer_key = f"pointer_{test['id']}_{tech_id}"
             if pointer_key not in st.session_state:
@@ -176,14 +116,17 @@ def render_runner():
                 cols = st.columns(4)
                 for i, lbl in enumerate(labels):
                     with cols[i % 4]:
-                        if st.button(f"{FACE_EMOJI[i]}\n\n{i+1}. {lbl}", key=f"emo_{i}_{current_task}", use_container_width=True):
+                        if st.button(
+                            f"{FACE_EMOJI[i]}\n\n{i+1}. {lbl}",
+                            key=f"emo_{tech_id}_{i}_{current_task}", use_container_width=True,
+                        ):
                             confirm_emotion_dialog(i + 1, lbl, current_task, tech_id, test["id"], pointer_key)
     elif active_tech["type"] == "3e":
         st.caption("Técnica 3E")
         st.write(
-            "Peça ao participante para escrever seus comentários no balão de fala, seus "
-            "pensamentos na nuvem de pensamento, e para desenhar na cabeça do boneco um rosto "
-            "ou objetos que representem sua emoção ou experiência — tudo direto no template do Miro."
+            "Escreva seus comentários no balão de fala, seus pensamentos na nuvem de "
+            "pensamento, e desenhe na cabeça do boneco um rosto ou objetos que representem "
+            "sua emoção ou experiência — tudo direto no template do Miro."
         )
         st.link_button("🔗 Abrir template 3E no Miro", THREE_E_MIRO_LINK, use_container_width=True)
     elif active_tech["type"] == "attrakdiff":
@@ -250,9 +193,9 @@ def render_runner():
                         db.set_single_answer(test["id"], tech_id, item_key, n)
                         st.rerun()
     else:
-        task_name = st.text_input("Nome da tarefa", key=f"notes_task_{test['id']}")
-        note = st.text_area("Anotação — o que o participante disse ou fez?", key=f"notes_note_{test['id']}")
-        if st.button("Salvar registro"):
+        task_name = st.text_input("Nome da tarefa", key=f"notes_task_{tech_id}_{test['id']}")
+        note = st.text_area("Anotação — o que o participante disse ou fez?", key=f"notes_note_{tech_id}_{test['id']}")
+        if st.button("Salvar registro", key=f"notes_save_{tech_id}_{test['id']}"):
             if not task_name.strip():
                 st.warning("Digite o nome da tarefa.")
             elif not note.strip():
@@ -260,6 +203,169 @@ def render_runner():
             else:
                 db.add_entry(test["id"], tech_id, task_name.strip(), note=note.strip())
                 st.rerun()
+
+
+# ============================= sessão do participante (acesso só pelo link/código, sem login) =============================
+def render_participant_session(test):
+    project_p = db.get_project(test["project_id"])
+    techniques_p = db.list_techniques(test["project_id"])
+    for t in techniques_p:
+        t["tasks"] = db.list_tasks(t["id"])
+
+    st.title(f"Olá, {test['participant']} 👋")
+    if project_p:
+        st.caption(project_p["name"])
+
+    if test["status"] == "done":
+        st.success("Esta sessão já foi concluída — obrigado pela participação! Você já pode fechar esta página.")
+        return
+
+    if not techniques_p:
+        st.info("Esta sessão ainda não tem nenhuma etapa configurada. Avise seu facilitador.")
+        return
+
+    tech_names = {t["id"]: t["name"] for t in techniques_p}
+    tech_id = st.selectbox(
+        "Etapa", options=list(tech_names.keys()), format_func=lambda tid: tech_names[tid],
+        key=f"p_tech_{test['id']}",
+    )
+    active_tech = next(t for t in techniques_p if t["id"] == tech_id)
+    entries = db.list_entries(test["id"])
+
+    st.divider()
+    render_technique_body(test, tech_id, active_tech, entries)
+
+    st.divider()
+    if st.button("✅ Concluir sessão e enviar respostas", type="primary"):
+        db.finish_test(test["id"])
+        st.rerun()
+
+
+# ============================= autenticação: participante (código) ou facilitador/admin (senha) =============================
+if access_code:
+    participant_test = db.get_test_by_code(access_code)
+    if not participant_test:
+        st.title("Campo")
+        st.error("Código de sessão inválido. Confira o link recebido do seu facilitador.")
+        st.stop()
+    render_participant_session(participant_test)
+    st.stop()
+
+if not st.session_state.get("is_admin"):
+    st.title("Campo")
+    st.caption("Acesso do facilitador/admin")
+    ADMIN_PASSWORD = st.secrets.get("ADMIN_PASSWORD")
+    with st.form("admin_login_form"):
+        pwd = st.text_input("Senha de administrador", type="password")
+        submitted_login = st.form_submit_button("Entrar", type="primary")
+    if submitted_login:
+        if ADMIN_PASSWORD and pwd == ADMIN_PASSWORD:
+            st.session_state["is_admin"] = True
+            st.rerun()
+        else:
+            st.error("Senha incorreta.")
+    st.caption("É um participante? Peça o link da sua sessão ao facilitador.")
+    st.stop()
+
+
+# ============================= sidebar (somente admin) =============================
+with st.sidebar:
+    st.markdown("## Campo")
+    st.caption("Sessões de teste de usabilidade")
+
+    with st.expander("+ Novo projeto"):
+        new_name = st.text_input("Nome do projeto", key="new_proj_name")
+        new_desc = st.text_area("Descrição", key="new_proj_desc")
+        if st.button("Criar projeto"):
+            if new_name.strip():
+                project = db.create_project(new_name.strip(), new_desc.strip())
+                goto(view="project", pid=project["id"], tab="overview")
+            else:
+                st.warning("Dê um nome ao projeto.")
+
+    st.divider()
+    projects = db.list_projects()
+    if not projects:
+        st.caption("Nenhum projeto ainda.")
+    for p in projects:
+        active = p["id"] == current_pid
+        c1, c2 = st.columns([5, 1])
+        if c1.button(("• " if active else "") + p["name"], key=f"proj_{p['id']}", use_container_width=True):
+            goto(view="project", pid=p["id"], tab="overview")
+        with c2.popover("🗑️"):
+            st.write(f"Excluir **{p['name']}**? Essa ação não pode ser desfeita.")
+            if st.button("Confirmar exclusão", key=f"del_proj_side_{p['id']}", type="primary"):
+                db.delete_project(p["id"])
+                if active:
+                    st.query_params.clear()
+                st.rerun()
+
+    st.divider()
+    if st.button("🔒 Sair"):
+        st.session_state["is_admin"] = False
+        st.query_params.clear()
+        st.rerun()
+
+
+# ============================= tela inicial (nenhum projeto selecionado) =============================
+if not current_pid or view == "home":
+    st.title("Campo")
+    st.info("Selecione um projeto na barra lateral, ou crie um novo para começar.")
+    st.stop()
+
+project = db.get_project(current_pid)
+if not project:
+    st.error("Projeto não encontrado.")
+    st.stop()
+
+techniques = db.list_techniques(current_pid)
+for t in techniques:
+    t["tasks"] = db.list_tasks(t["id"])
+
+APP_URL = st.secrets.get("APP_URL", "").rstrip("/")
+
+
+def _participant_link(code):
+    return f"{APP_URL}/?code={code}" if APP_URL else f"?code={code}"
+
+
+def render_chart_grid(figs):
+    """Mostra até dois gráficos por linha, lado a lado — os gráficos já usam fontes
+    maiores para continuar legíveis nesse tamanho menor."""
+    for i in range(0, len(figs), 2):
+        pair = figs[i:i + 2]
+        cols = st.columns(2)
+        for col, fig in zip(cols, pair):
+            col.pyplot(fig, use_container_width=True)
+
+
+# ============================= tela: runner (rodando uma sessão, uso do facilitador/admin) =============================
+def render_runner():
+    test = db.get_test(current_tid)
+    if not test:
+        goto(view="project", tab="tests")
+        return
+
+    st.title(f"Sessão com {test['participant']}")
+    co = f" · com {test['co_testers']}" if test.get("co_testers") else ""
+    st.caption(f"Facilitador: {test['tester']}{co} · {test.get('test_datetime','')}")
+
+    if st.button("Finalizar teste", type="primary"):
+        db.finish_test(test["id"])
+        goto(view="result", tid=test["id"])
+        return
+
+    tech_names = {t["id"]: t["name"] for t in techniques}
+    tech_id = st.selectbox(
+        "Técnica", options=list(tech_names.keys()),
+        format_func=lambda tid: tech_names[tid],
+        key=f"runner_tech_{test['id']}",
+    )
+    active_tech = next(t for t in techniques if t["id"] == tech_id)
+    entries = db.list_entries(test["id"])
+
+    st.divider()
+    render_technique_body(test, tech_id, active_tech, entries)
 
     st.divider()
     st.subheader(f"Registros desta sessão ({len(entries)})")
@@ -309,14 +415,18 @@ def render_result():
     emo_techs = [t for t in techniques if t["type"] == "emocards"]
     attrak_techs = [t for t in techniques if t["type"] == "attrakdiff"]
     any_chart = False
+
+    emo_figs = []
     for tech in emo_techs:
         counts = emo_counts_from_entries(entries, tech["id"])
         if sum(counts) > 0:
-            any_chart = True
-            st.subheader(tech["name"])
-            fig = make_bar_chart(f"Emoções gerais — {test['participant']}", tech["labels"], counts)
-            st.pyplot(fig, use_container_width=False)
+            emo_figs.append((tech, make_bar_chart(f"Emoções gerais — {test['participant']}", tech["labels"], counts)))
+    if emo_figs:
+        any_chart = True
+        render_chart_grid([fig for _, fig in emo_figs])
+        for tech, _ in emo_figs:
             st.caption(legend_caption(tech["labels"]))
+
     for tech in attrak_techs:
         scores = attrakdiff_scores_from_entries(entries, tech["id"])
         if scores:
@@ -352,22 +462,21 @@ def render_result():
         )
 
 
-# ============================= tela: projeto (abas) =============================
+# ============================= tela: projeto (abas, uso do facilitador/admin) =============================
 def render_project():
     st.title(project["name"])
-    if project.get("description"):
-        st.caption(project["description"])
 
     tab_labels = ["Visão geral", "Membros", "Roteiro & técnicas", "Testes", "Relatório"]
     tab_keys = ["overview", "members", "script", "tests", "report"]
     tabs = st.tabs(tab_labels)
 
     with tabs[0]:
-        st.write(project.get("description") or "_Sem descrição._")
-        if st.button("Excluir projeto", type="secondary"):
-            db.delete_project(project["id"])
-            st.query_params.clear()
-            st.rerun()
+        c1, c2 = st.columns([6, 1])
+        with c1:
+            st.write(project.get("description") or "_Sem descrição._")
+        with c2:
+            if st.button("✏️ Editar descrição", use_container_width=True):
+                edit_description_dialog(project)
 
     with tabs[1]:
         members = db.list_members(project["id"])
@@ -490,6 +599,15 @@ def render_project():
             c2.write("🟡 em andamento" if t["status"] == "ongoing" else "🟢 concluído")
             if c3.button("Abrir", key=f"open_test_{t['id']}"):
                 goto(view="runner" if t["status"] == "ongoing" else "result", tid=t["id"])
+            if t.get("access_code"):
+                with st.expander("🔗 Link de acesso do participante", expanded=False):
+                    st.code(_participant_link(t["access_code"]))
+                    if not APP_URL:
+                        st.caption(
+                            "Cole isso depois da URL do seu app publicado (ex.: "
+                            "https://seu-app.streamlit.app/?code=...), ou configure o secret "
+                            "APP_URL para o link completo aparecer pronto aqui."
+                        )
 
     with tabs[4]:
         tests = db.list_tests(project["id"])
@@ -507,9 +625,8 @@ def render_project():
             if by_task:
                 any_chart = True
                 st.subheader(tech["name"])
-                for task_name, counts in by_task.items():
-                    fig = make_bar_chart(task_name, tech["labels"], counts)
-                    st.pyplot(fig, use_container_width=False)
+                figs = [make_bar_chart(task_name, tech["labels"], counts) for task_name, counts in by_task.items()]
+                render_chart_grid(figs)
                 st.caption(legend_caption(tech["labels"]))
         for tech in attrak_techs:
             scores = attrakdiff_scores_from_entries(all_entries, tech["id"])
@@ -536,7 +653,7 @@ def render_project():
             )
 
 
-# ============================= roteamento =============================
+# ============================= roteamento (admin) =============================
 if view == "runner" and current_tid:
     render_runner()
 elif view == "result" and current_tid:

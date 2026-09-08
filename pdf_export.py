@@ -16,6 +16,28 @@ def _fig_to_png_bytes(fig):
     return buf
 
 
+# Largura de página útil em pt (A4, margens de 40pt) e layout de duas colunas
+# usado para os gráficos de Emocards, deixando espaço para caber dois lado a lado.
+_PAGE_MARGIN = 40
+_COL_GAP = 16
+_COL_W = 245  # 2 * 245 + 16 = 506pt, dentro dos ~515pt úteis de uma A4
+_COL_ASPECT = 3.9 / 5.4  # mesma proporção do figsize usado em make_bar_chart
+
+
+def _place_chart_row(pdf, figs, break_y=560):
+    """Desenha até dois gráficos lado a lado na mesma linha, avançando o cursor do PDF
+    em seguida. `figs` deve ter 1 ou 2 figuras do matplotlib."""
+    if pdf.get_y() > break_y:
+        pdf.add_page()
+    y = pdf.get_y()
+    row_h = _COL_W * _COL_ASPECT
+    for i, fig in enumerate(figs[:2]):
+        img = _fig_to_png_bytes(fig)
+        x = _PAGE_MARGIN + i * (_COL_W + _COL_GAP)
+        pdf.image(img, x=x, y=y, w=_COL_W)
+    pdf.set_y(y + row_h + 12)
+
+
 def build_project_pdf(project, techniques, tests, entries):
     pdf = FPDF(unit="pt", format="A4")
     pdf.set_auto_page_break(auto=True, margin=40)
@@ -43,13 +65,9 @@ def build_project_pdf(project, techniques, tests, entries):
             continue
         pdf.set_font("Helvetica", "B", 13)
         pdf.cell(0, 20, f"{tech['name']} - agregado de todas as sessoes", ln=1)
-        for task_name, counts in by_task.items():
-            fig = make_bar_chart(task_name, tech["labels"], counts)
-            img = _fig_to_png_bytes(fig)
-            if pdf.get_y() > 620:
-                pdf.add_page()
-            pdf.image(img, w=440)
-            pdf.ln(4)
+        figs = [make_bar_chart(task_name, tech["labels"], counts) for task_name, counts in by_task.items()]
+        for i in range(0, len(figs), 2):
+            _place_chart_row(pdf, figs[i:i + 2])
             wrote_anything = True
 
     # ---- agregado de todas as sessoes: AttrakDiff ----
@@ -84,6 +102,7 @@ def build_project_pdf(project, techniques, tests, entries):
         pdf.set_text_color(20, 20, 20)
         wrote_anything = True
 
+        session_emo_figs = []
         for tech in emo_techs:
             counts = [0] * 8
             for e in test_entries:
@@ -91,12 +110,9 @@ def build_project_pdf(project, techniques, tests, entries):
                     counts[e["emotion"] - 1] += 1
             if sum(counts) == 0:
                 continue
-            fig = make_bar_chart(f"{tech['name']} - emocoes gerais", tech["labels"], counts)
-            img = _fig_to_png_bytes(fig)
-            if pdf.get_y() > 560:
-                pdf.add_page()
-            pdf.image(img, w=380)
-            pdf.ln(4)
+            session_emo_figs.append(make_bar_chart(f"{tech['name']} - emocoes gerais", tech["labels"], counts))
+        for i in range(0, len(session_emo_figs), 2):
+            _place_chart_row(pdf, session_emo_figs[i:i + 2], break_y=500)
 
         for tech in attrak_techs:
             scores = attrakdiff_scores_from_entries(test_entries, tech["id"])

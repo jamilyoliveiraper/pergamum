@@ -1,6 +1,13 @@
 """Camada de acesso ao Supabase. Todas as funções de leitura/escrita do app passam por aqui."""
+import secrets as _secrets
+
 import streamlit as st
 from supabase import create_client
+
+
+def generate_access_code():
+    """Código curto e único usado no link de acesso do participante (?code=...)."""
+    return _secrets.token_urlsafe(6)
 
 DEFAULT_EMO_LABELS = [
     "Muito insatisfeito", "Insatisfeito", "Levemente insatisfeito", "Neutro",
@@ -69,6 +76,10 @@ def create_project(name, description):
 
 def update_project_script(project_id, script):
     sb().table("projects").update({"script": script}).eq("id", project_id).execute()
+
+
+def update_project_description(project_id, description):
+    sb().table("projects").update({"description": description}).eq("id", project_id).execute()
 
 
 def delete_project(project_id):
@@ -149,10 +160,20 @@ def get_test(test_id):
     return r.data
 
 
+def get_test_by_code(access_code):
+    """Usada no acesso do participante via link único (?code=...). Retorna None se o
+    código não existir."""
+    if not access_code:
+        return None
+    r = sb().table("tests").select("*").eq("access_code", access_code).execute()
+    return r.data[0] if r.data else None
+
+
 def create_test(project_id, tester, co_testers, participant, test_datetime):
     r = sb().table("tests").insert({
         "project_id": project_id, "tester": tester, "co_testers": co_testers,
         "participant": participant, "test_datetime": test_datetime, "status": "ongoing",
+        "access_code": generate_access_code(),
     }).execute()
     return r.data[0]
 

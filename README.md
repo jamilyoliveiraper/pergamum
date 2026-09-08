@@ -2,6 +2,38 @@
 
 ## Novidades desta versão (atualização mais recente)
 
+- **Acesso com identificação obrigatória**: ao abrir o site, é preciso entrar como
+  **facilitador/admin** (senha fixa) ou como **participante** (link único da sessão).
+  - **Facilitador/admin**: digita a senha guardada em `st.secrets["ADMIN_PASSWORD"]`. É o
+    único que enxerga a barra lateral (criar/excluir projetos), edita a descrição do
+    projeto, edita o roteiro e as técnicas, vê todas as sessões e gera o relatório/PDF.
+  - **Participante**: não faz login — acessa direto pelo link único da sessão
+    (`.../?code=CODIGO`), gerado automaticamente ao criar a sessão na aba **Testes**
+    (o link fica disponível ali, em "🔗 Link de acesso do participante"). Por esse link, a
+    pessoa só vê e responde a sessão criada para ela — nada de outros projetos, sessões,
+    roteiro ou relatórios. Ao terminar, ela mesma clica em "Concluir sessão e enviar
+    respostas".
+  - Se quiser que o link apareça já completo (com a URL do seu app), defina o secret
+    opcional `APP_URL` (ex.: `APP_URL = "https://seu-app.streamlit.app"`); sem isso, o app
+    mostra só a parte `?code=...` para você colar depois da sua URL.
+  - Atenção: o login do admin fica só na aba/sessão do navegador (não há cookie
+    persistente) — se a página for totalmente recarregada, a senha é pedida de novo. Já o
+    link do participante sempre funciona, direto, sem precisar logar.
+  - Este recurso precisa da coluna nova `access_code` na tabela `tests` — o `schema.sql`
+    já inclui o `alter table` para adicionar essa coluna e gerar um código para sessões
+    antigas que ainda não tinham.
+- **Visão geral com descrição editável**: a aba "Visão geral" agora mostra só a
+  descrição do projeto e um botão "✏️ Editar descrição" (abre um pop-up para editar e
+  salvar). O botão "Excluir projeto" saiu dessa aba — a exclusão de projeto continua
+  disponível apenas pelo ícone 🗑️ na barra lateral.
+- **Tela inicial simplificada**: ao entrar sem selecionar nenhum projeto, o app agora só
+  mostra um aviso curto pedindo para escolher ou criar um projeto na barra lateral.
+- **Gráficos de Emocards com emoji no lugar do número**: cada barra agora é identificada
+  só pelo emoji da emoção (sem o número da escala), em fonte bem maior para continuar
+  legível mesmo com o gráfico menor.
+- **Dois gráficos lado a lado**: tanto na tela ("Relatório" do projeto e resultado de uma
+  sessão) quanto no PDF, os gráficos de Emocards por tarefa agora aparecem em pares, lado
+  a lado, com títulos e legendas maiores para compensar o tamanho menor.
 - **Emocards avança sozinho**: assim que você confirma a emoção de uma tarefa, o app já
   pula para a próxima tarefa automaticamente — não existe mais o botão "Seguir".
 - **3E virou só um link**: a tela da técnica 3E não pede mais nada no app. Ela mostra um
@@ -94,7 +126,13 @@ mantidas ativamente (Streamlit, Pillow, matplotlib, fpdf2, supabase, pandas).
    ```
    SUPABASE_URL = "https://SEU-PROJETO.supabase.co"
    SUPABASE_KEY = "sua-chave-anon"
+   ADMIN_PASSWORD = "escolha-uma-senha-para-os-facilitadores"
+   # opcional — só para o link do participante já aparecer completo:
+   APP_URL = "https://seu-app.streamlit.app"
    ```
+   O `ADMIN_PASSWORD` é obrigatório: é a senha que os facilitadores usam para entrar no
+   modo admin. Sem ela configurada, ninguém consegue logar como admin (o login sempre dará
+   "Senha incorreta").
 4. Clique em Deploy. Você recebe uma URL pública (tipo `https://campo-seuapp.streamlit.app`).
 5. Envie essa URL para todos os facilitadores — todos usam o mesmo link e o mesmo projeto/banco de dados.
 
